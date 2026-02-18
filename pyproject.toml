@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vigilo"
+version = "0.1.0"
+description = "Universal monitoring platform — watch your machines, LLMs, notebooks, and coding tools from your phone."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+authors = [
+    {name = "Vigilo Team"}
+]
+keywords = ["monitoring", "system-metrics", "llm", "gpu", "colab", "kaggle", "machine-learning"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Monitoring",
+]
+
+dependencies = [
+    "psutil>=5.9.0",
+    "fastapi>=0.104.0",
+    "uvicorn>=0.24.0",
+]
+
+[project.optional-dependencies]
+gpu = ["pynvml>=11.5.0"]
+all = ["pynvml>=11.5.0"]
+
+[project.scripts]
+vigilo = "vigilo.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/vigilo-dev/vigilo"
+Issues = "https://github.com/vigilo-dev/vigilo/issues"
+
+[tool.setuptools.packages.find]
+include = ["vigilo*"]
