@@ -901,6 +901,28 @@ The critical foundation for the "conversation transfer" feature is in place — 
 
 **The audience**: Students, writers, researchers, creators, business professionals, hobbyists, and developers — anyone who interacts with AI or runs compute.
 
+### GPU Verified on Real Hardware (19 February 2026)
+
+Tested on Google Colab with T4 GPU enabled. This closes the GPU monitoring gap from Phase 1a.
+
+| Reading | Value | Matches Expected? |
+|---|---|---|
+| GPU detected | Tesla T4 | YES |
+| VRAM Total | 15.0 GB | YES (T4 = 15 GB in our config) |
+| VRAM Used | 0.44 GB | YES (CUDA driver overhead) |
+| VRAM Free | 14.56 GB | YES |
+| Utilization | 0% | YES (idle) |
+| Temperature | 43°C | YES (healthy idle temp) |
+| Power | 12.5W | YES (idle power draw) |
+| RAM | 12.67 GB | YES (free tier ~13 GB) |
+| CPU Cores | 2 | YES (free tier) |
+
+All GPU fields that our code reads (`pynvml` name, memory, utilization, temperature, power) return correct values on real hardware.
+
+### LLM Wrapper Interception Verified (19 February 2026)
+
+Tested `vigilo.wrap()` with a real Google Gemini API call. The wrapper successfully intercepted the call (proven by the traceback showing `wrapper.py line 211, in wrapped_generate`). The API call itself was rejected by Google's free tier quota limit (error 429), so no token data flowed through. The interception mechanism is verified — full end-to-end token tracking will be confirmed when a working API key is available.
+
 ### Live Demo Results (product owner tested)
 
 All 4 LLM endpoints tested by the product owner in a browser:
