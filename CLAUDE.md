@@ -204,35 +204,47 @@ Bannin's moat: unified relay (one dashboard for everything), intelligence levels
 - Dashboard: smart OOM display (shows "Memory stable" when no trend, details only when critical)
 - Collection interval: 2 seconds (predictions available in ~24 seconds)
 
-### Phase 3: Connectivity
+### Phase 3: LLM Health Exposure + PyPI Launch
+- Expose conversation health score as API endpoint and on dashboard
+- Wire health scoring into LLM tracker (auto-calculate during calls)
+- Add health score to MCP server tools
+- Rule-based recommendation engine (L2 — "start new chat", "reduce batch size", "checkpoint now")
+- macOS compatibility testing (psutil, dashboard, MCP on Apple Silicon)
+- Cursor / Windsurf MCP testing
+- PyPI publication (`pip install bannin`)
+- OpenClaw skill publication
+- Documentation site + integration guide ("Connect Bannin to Claude Code in 2 minutes")
+- Community launch (Reddit, HN, Kaggle)
+
+### Phase 4: Browser Extension
+- Chrome extension (Manifest V3) for ChatGPT, Claude.ai, Gemini
+- DOM-based token estimation and conversation health scoring
+- Latency degradation detection (response time trending)
+- "This conversation is degrading — start fresh" recommendation
+- Context transfer: capture conversation summary, inject into new chat
+- Chrome Web Store publication
+- This is the biggest audience unlock — every AI user, no Python needed
+
+### Phase 5: Connectivity
 - Node.js relay server (DigitalOcean, $10-15/mo)
 - Email authentication (Firebase Auth magic link)
 - WebSocket streaming (agent → relay, 10-second intervals)
 - Push notifications (FCM/APNs)
 - Run history storage (SQLite)
+- Now built for users who already exist and are asking for phone alerts
 
-### Phase 4: MCP Server + AI Integration
-- Full MCP tool suite (metrics, tasks, training, OOM, actions)
-- Claude Code / Cursor / Windsurf testing
-- Action tools (checkpoint, pause, kill — L3 with user confirmation)
-- Integration docs ("Connect Bannin to Claude Code in 2 minutes")
-- Rule-based recommendation engine (L2)
-
-### Phase 5: Phone App + Actions
+### Phase 6: Phone App + Actions + Polish
 - React Native scaffold (Expo)
 - Alert screen, live status, action buttons (L3)
+- Action tools (checkpoint, pause, kill — L3 with user confirmation)
 - Run history screen
 - LLM cost dashboard (cross-provider)
 - TestFlight / internal Android beta
-
-### Phase 6: Polish + Launch + Browser Extension
-- Browser extension (ChatGPT/Claude.ai/Gemini — conversation health, context transfer)
-- macOS Apple Silicon (macmon integration)
-- OpenClaw skill publication
+- App Store submission
+- macOS Apple Silicon GPU (macmon integration)
+- VS Code extension (future, based on demand)
 - Policy-based auto-actions (L4)
-- LLM-powered recommendations
-- Documentation site, PyPI release, App Store submission
-- Community launch (Reddit, HN, Kaggle)
+- LLM-powered recommendations (prompt engineering nudges)
 
 ## Key Design Decisions
 
