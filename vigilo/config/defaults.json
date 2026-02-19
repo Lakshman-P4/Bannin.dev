@@ -101,5 +101,273 @@
       "command-r-plus":              {"provider": "cohere",    "input_per_m": 2.50,  "output_per_m": 10.00, "cached_input_per_m": 2.50,  "context_window": 128000},
       "command-r":                   {"provider": "cohere",    "input_per_m": 0.15,  "output_per_m": 0.60,  "cached_input_per_m": 0.15,  "context_window": 128000}
     }
+  },
+
+  "intelligence": {
+    "_note": "Phase 2 intelligence engine configuration. Controls metric history, OOM prediction, progress detection, alerts, and health scoring.",
+    "collection_interval_seconds": 5,
+    "history_max_readings": 360,
+
+    "oom": {
+      "min_data_points": 12,
+      "confidence_threshold": 70,
+      "ram_critical_percent": 95,
+      "gpu_critical_percent": 95
+    },
+
+    "progress": {
+      "stdout_patterns": [
+        {"name": "epoch",   "regex": "Epoch\\s+(\\d+)[/](\\d+)", "current_group": 1, "total_group": 2},
+        {"name": "step",    "regex": "Step\\s+(\\d+)[/](\\d+)",  "current_group": 1, "total_group": 2},
+        {"name": "batch",   "regex": "Batch\\s+(\\d+)[/](\\d+)", "current_group": 1, "total_group": 2},
+        {"name": "percent", "regex": "(\\d+)%",                  "current_group": 1, "total_group": null},
+        {"name": "counter", "regex": "(\\d+)[/](\\d+)",          "current_group": 1, "total_group": 2}
+      ],
+      "stall_timeout_seconds": 300
+    },
+
+    "alerts": {
+      "rules": [
+        {
+          "id": "ram_high",
+          "metric": "memory.percent",
+          "operator": ">=",
+          "threshold": 80,
+          "severity": "warning",
+          "message": "RAM HIGH: {value}% used",
+          "cooldown_seconds": 120,
+          "platforms": ["all"]
+        },
+        {
+          "id": "ram_critical",
+          "metric": "memory.percent",
+          "operator": ">=",
+          "threshold": 95,
+          "severity": "critical",
+          "message": "RAM CRITICAL: {value}% used — system may crash",
+          "cooldown_seconds": 60,
+          "platforms": ["all"]
+        },
+        {
+          "id": "disk_warning",
+          "metric": "disk.percent",
+          "operator": ">=",
+          "threshold": 80,
+          "severity": "warning",
+          "message": "DISK WARNING: {value}% used",
+          "cooldown_seconds": 300,
+          "platforms": ["all"]
+        },
+        {
+          "id": "disk_critical",
+          "metric": "disk.percent",
+          "operator": ">=",
+          "threshold": 95,
+          "severity": "critical",
+          "message": "DISK CRITICAL: {value}% used — may run out of space",
+          "cooldown_seconds": 120,
+          "platforms": ["all"]
+        },
+        {
+          "id": "gpu_vram_warning",
+          "metric": "gpu.memory_percent",
+          "operator": ">=",
+          "threshold": 80,
+          "severity": "warning",
+          "message": "GPU VRAM HIGH: {value}% used",
+          "cooldown_seconds": 120,
+          "platforms": ["all"]
+        },
+        {
+          "id": "gpu_vram_critical",
+          "metric": "gpu.memory_percent",
+          "operator": ">=",
+          "threshold": 95,
+          "severity": "critical",
+          "message": "GPU VRAM CRITICAL: {value}% — OOM risk",
+          "cooldown_seconds": 60,
+          "platforms": ["all"]
+        },
+        {
+          "id": "cpu_sustained_high",
+          "metric": "cpu.percent",
+          "operator": ">=",
+          "threshold": 90,
+          "severity": "warning",
+          "message": "CPU SUSTAINED HIGH: {value}% usage",
+          "cooldown_seconds": 180,
+          "platforms": ["all"]
+        },
+        {
+          "id": "oom_predicted",
+          "metric": "predictions.oom.ram.minutes_until_full",
+          "operator": "<=",
+          "threshold": 10,
+          "condition": "predictions.oom.ram.confidence >= 70",
+          "severity": "critical",
+          "message": "OOM PREDICTED: RAM will be full in ~{value} minutes",
+          "cooldown_seconds": 60,
+          "platforms": ["all"]
+        },
+        {
+          "id": "gpu_oom_predicted",
+          "metric": "predictions.oom.gpu.minutes_until_full",
+          "operator": "<=",
+          "threshold": 5,
+          "condition": "predictions.oom.gpu.confidence >= 70",
+          "severity": "critical",
+          "message": "GPU OOM PREDICTED: VRAM will be full in ~{value} minutes",
+          "cooldown_seconds": 30,
+          "platforms": ["all"]
+        },
+        {
+          "id": "session_expiring",
+          "metric": "platform.session.remaining_seconds",
+          "operator": "<=",
+          "threshold": 900,
+          "severity": "warning",
+          "message": "SESSION EXPIRING: {value_human} remaining",
+          "cooldown_seconds": 120,
+          "platforms": ["colab", "kaggle"]
+        },
+        {
+          "id": "session_expiring_critical",
+          "metric": "platform.session.remaining_seconds",
+          "operator": "<=",
+          "threshold": 300,
+          "severity": "critical",
+          "message": "SESSION CRITICAL: Only {value_human} remaining!",
+          "cooldown_seconds": 60,
+          "platforms": ["colab", "kaggle"]
+        },
+        {
+          "id": "gpu_quota_low",
+          "metric": "platform.gpu_quota.remaining_hours",
+          "operator": "<=",
+          "threshold": 2,
+          "severity": "warning",
+          "message": "GPU QUOTA LOW: Only {value} hours remaining this week",
+          "cooldown_seconds": 600,
+          "platforms": ["kaggle"]
+        },
+        {
+          "id": "storage_nearly_full",
+          "metric": "platform.storage.percent",
+          "operator": ">=",
+          "threshold": 80,
+          "severity": "warning",
+          "message": "STORAGE WARNING: {value}% used on platform storage",
+          "cooldown_seconds": 300,
+          "platforms": ["colab", "kaggle"]
+        },
+        {
+          "id": "context_window_warning",
+          "metric": "llm.context_percent",
+          "operator": ">=",
+          "threshold": 75,
+          "severity": "warning",
+          "message": "CONTEXT WINDOW: {value}% used — conversation getting long",
+          "cooldown_seconds": 120,
+          "platforms": ["all"]
+        },
+        {
+          "id": "context_window_critical",
+          "metric": "llm.context_percent",
+          "operator": ">=",
+          "threshold": 90,
+          "severity": "critical",
+          "message": "CONTEXT WINDOW CRITICAL: {value}% used — consider starting a new chat",
+          "cooldown_seconds": 60,
+          "platforms": ["all"]
+        },
+        {
+          "id": "latency_degrading",
+          "metric": "llm.latency_ratio",
+          "operator": ">=",
+          "threshold": 1.5,
+          "severity": "warning",
+          "message": "LATENCY DEGRADING: Responses are {value}x slower than earlier",
+          "cooldown_seconds": 180,
+          "platforms": ["all"]
+        },
+        {
+          "id": "llm_spend_high",
+          "metric": "llm.total_cost_usd",
+          "operator": ">=",
+          "threshold": 10.0,
+          "severity": "warning",
+          "message": "LLM SPEND: ${value} spent this session",
+          "cooldown_seconds": 600,
+          "platforms": ["all"]
+        },
+        {
+          "id": "training_complete",
+          "metric": "tasks.all_completed",
+          "operator": "==",
+          "threshold": true,
+          "severity": "info",
+          "message": "TRAINING COMPLETE: All tracked tasks have finished",
+          "cooldown_seconds": 0,
+          "platforms": ["all"]
+        },
+        {
+          "id": "eta_exceeds_session",
+          "metric": "tasks.longest_eta_seconds",
+          "compare_to": "platform.session.remaining_seconds",
+          "operator": ">",
+          "severity": "critical",
+          "message": "WILL NOT FINISH: Training ETA exceeds session time remaining",
+          "cooldown_seconds": 120,
+          "platforms": ["colab", "kaggle"]
+        },
+        {
+          "id": "conversation_health_low",
+          "metric": "llm.health_score",
+          "operator": "<=",
+          "threshold": 40,
+          "severity": "warning",
+          "message": "CONVERSATION HEALTH LOW: Score {value}/100 — consider starting a new chat",
+          "cooldown_seconds": 300,
+          "platforms": ["all"]
+        },
+        {
+          "id": "conversation_health_critical",
+          "metric": "llm.health_score",
+          "operator": "<=",
+          "threshold": 20,
+          "severity": "critical",
+          "message": "CONVERSATION HEALTH CRITICAL: Score {value}/100 — this chat is severely degraded",
+          "cooldown_seconds": 120,
+          "platforms": ["all"]
+        }
+      ]
+    },
+
+    "conversation_health": {
+      "weights": {
+        "context_freshness": 0.45,
+        "latency_health": 0.30,
+        "cost_efficiency": 0.25
+      },
+      "thresholds": {
+        "excellent": 90,
+        "good": 70,
+        "fair": 50,
+        "poor": 30
+      }
+    }
+  },
+
+  "mcp": {
+    "_note": "MCP server configuration for AI tool integration.",
+    "enabled_tools": [
+      "get_system_metrics",
+      "get_training_status",
+      "predict_oom",
+      "get_active_alerts",
+      "get_llm_usage",
+      "get_conversation_health"
+    ],
+    "log_tool_calls": true
   }
 }

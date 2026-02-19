@@ -230,34 +230,7 @@ class LLMTracker:
         """Generate warnings based on usage patterns."""
         warnings = []
 
-        # Spend warning
-        if total_cost > 10.0:
-            warnings.append(f"SPEND HIGH: ${total_cost:.2f} spent this session across all LLM calls.")
-        elif total_cost > 5.0:
-            warnings.append(f"SPEND NOTICE: ${total_cost:.2f} spent this session.")
-
-        # Latency degradation check (across all models)
-        if len(calls) >= 5:
-            recent = calls[-5:]
-            latencies = [c["latency_seconds"] for c in recent]
-            avg_recent = sum(latencies) / len(latencies)
-            if avg_recent > 10.0:
-                warnings.append(f"LATENCY HIGH: Average response time is {avg_recent:.1f}s over last 5 calls.")
-
-        # Context window check — look at the most recent call per model
-        seen_models = {}
-        for c in reversed(calls):
-            if c["model"] not in seen_models:
-                seen_models[c["model"]] = c
-        for model, last_call in seen_models.items():
-            ctx = self.get_context_usage(model, last_call["input_tokens"])
-            if ctx.get("percent_used") and ctx["percent_used"] >= 80:
-                warnings.append(
-                    f"CONTEXT WARNING ({model}): {ctx['percent_used']}% of context window used. "
-                    f"~{ctx['estimated_messages_remaining']} messages remaining."
-                )
-
-        # Unknown model pricing warning
+        # LLM-specific binary check: unknown model pricing
         unpriced = set()
         for c in calls:
             if c["cost_usd"] == 0.0 and c["total_tokens"] > 0:
@@ -267,6 +240,17 @@ class LLMTracker:
                 f"PRICING UNKNOWN: Cost could not be calculated for: {', '.join(sorted(unpriced))}. "
                 f"Tokens are still tracked."
             )
+
+        # Threshold-based warnings come from the central alert engine
+        try:
+            from vigilo.intelligence.alerts import ThresholdEngine
+            active = ThresholdEngine.get().get_active_alerts()
+            for alert in active.get("active", []):
+                # Only include LLM-related alerts here
+                if alert["id"].startswith(("llm_", "context_", "latency_")):
+                    warnings.append(alert["message"])
+        except Exception:
+            pass
 
         return warnings
 

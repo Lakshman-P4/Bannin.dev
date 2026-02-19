@@ -17,10 +17,14 @@ def main():
         "--host", default="127.0.0.1", help="Host to bind to (default: 127.0.0.1)"
     )
 
+    subparsers.add_parser("mcp", help="Start the Vigilo MCP server (stdio)")
+
     args = parser.parse_args()
 
     if args.command == "start":
         _start_agent(host=args.host, port=args.port)
+    elif args.command == "mcp":
+        _start_mcp()
     else:
         parser.print_help()
         sys.exit(1)
@@ -29,17 +33,22 @@ def main():
 def _start_agent(host: str, port: int):
     import uvicorn
 
+    print()
     print(f"  Vigilo agent v0.1.0")
-    print(f"  Listening on http://{host}:{port}")
-    print(f"  Endpoints:")
-    print(f"    GET /metrics    — system metrics (CPU, RAM, disk, GPU)")
-    print(f"    GET /status     — agent info")
-    print(f"    GET /processes  — top processes by CPU usage")
-    print(f"    GET /tasks      — monitored tasks (coming soon)")
-    print(f"    GET /health     — health check")
+    print(f"  Dashboard:  http://{host}:{port}")
+    print(f"  API docs:   http://{host}:{port}/docs")
     print()
 
     uvicorn.run("vigilo.api:app", host=host, port=port, log_level="warning")
+
+
+def _start_mcp():
+    try:
+        from vigilo.mcp.server import serve
+        serve()
+    except ImportError:
+        print("Error: MCP SDK not installed. Install with: pip install vigilo[mcp]")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

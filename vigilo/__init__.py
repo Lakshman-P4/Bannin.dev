@@ -46,7 +46,17 @@ class watch:
 
     def __enter__(self):
         self._agent.start()
+        # Start background metric history collection
+        from vigilo.intelligence.history import MetricHistory
+        self._history = MetricHistory.get()
+        self._history.start()
+        # Start progress detection (tqdm + stdout interception)
+        from vigilo.intelligence.progress import ProgressTracker
+        self._progress = ProgressTracker.get()
+        self._progress.hook_all()
         return self._agent
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        self._progress.unhook_all()
+        self._history.stop()
         return False

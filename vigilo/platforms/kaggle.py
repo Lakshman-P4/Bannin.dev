@@ -345,62 +345,40 @@ def _get_hard_limits(accel_type: str) -> dict:
 def _generate_warnings(accel_type: str) -> list[str]:
     warnings = []
 
-    # Session time
-    session = _get_session_info(accel_type)
-    remaining_min = session["remaining_seconds"] / 60
-    if remaining_min < 15:
-        warnings.append(f"SESSION CRITICAL: Only {round(remaining_min)} minutes left! Save your work NOW.")
-    elif remaining_min < 30:
-        warnings.append(f"SESSION URGENT: {round(remaining_min)} minutes remaining. Consider saving outputs.")
-    elif remaining_min < 60:
-        warnings.append(f"SESSION WARNING: About {round(remaining_min)} minutes remaining.")
-
-    # Accelerator
-    accel = _get_accelerator_info(accel_type)
+    # Platform-specific binary checks (not threshold-based)
     if accel_type == "cpu":
         warnings.append("NO ACCELERATOR: Running on CPU only. Enable GPU/TPU in notebook settings if needed.")
-    if accel["memory_percent"] is not None and accel["memory_percent"] > 90:
-        warnings.append(f"GPU MEMORY CRITICAL: {accel['memory_percent']}% VRAM used. OOM crash imminent!")
-    elif accel["memory_percent"] is not None and accel["memory_percent"] > 80:
-        warnings.append(f"GPU MEMORY HIGH: {accel['memory_percent']}% VRAM used. Risk of out-of-memory crash.")
+
+    accel = _get_accelerator_info(accel_type)
     if accel["temperature_c"] is not None and accel["temperature_c"] > 85:
         warnings.append(f"GPU HOT: Temperature at {accel['temperature_c']}C. May cause thermal throttling.")
 
-    # RAM
-    ram = _get_ram_info(accel_type)
-    if ram["percent"] > 90:
-        warnings.append(f"RAM CRITICAL: {ram['percent']}% used. Notebook will be killed if memory is exhausted.")
-    elif ram["percent"] > 80:
-        warnings.append(f"RAM HIGH: {ram['percent']}% used ({ram['available_gb']} GB available).")
-
-    # Storage - output size
+    # Kaggle-specific: output file count (not a simple percent threshold)
     storage = _get_storage_info()
     output = storage["output"]
-    if output["used_gb"] is not None and output["used_gb"] > (OUTPUT_LIMIT_GB * 0.9):
-        warnings.append(f"OUTPUT CRITICAL: {output['used_gb']} GB of {OUTPUT_LIMIT_GB} GB limit used!")
-    elif output["used_gb"] is not None and output["used_gb"] > (OUTPUT_LIMIT_GB * 0.7):
-        warnings.append(f"OUTPUT HIGH: {output['used_gb']} GB of {OUTPUT_LIMIT_GB} GB limit used.")
-
-    # Storage - file count
     if output["file_count"] is not None and output["file_count"] > 400:
         warnings.append(f"OUTPUT FILES HIGH: {output['file_count']} of {OUTPUT_FILE_LIMIT} file limit. Consider zipping files.")
 
-    # Disk — focus on output limit, not shared filesystem total
-    disk = storage["disk"]
-    if disk["free_gb"] is not None and disk["free_gb"] < 5:
-        warnings.append(f"DISK LOW: Only {disk['free_gb']} GB free on the filesystem.")
-
-    # Internet
+    # Internet check
     internet = _check_internet_access()
     if not internet["available"]:
         warnings.append("NO INTERNET: External downloads and pip installs will fail. Use pre-loaded datasets.")
 
-    # GPU quota reminder
+    # GPU quota reminder (informational, not a threshold alert)
     if accel_type == "gpu":
         quota = _get_quota_info(accel_type)
         if quota["gpu"]["this_session_hours"] > 2:
             remaining_quota_estimate = WEEKLY_GPU_QUOTA_HOURS - quota["gpu"]["this_session_hours"]
             warnings.append(f"GPU QUOTA: Used {quota['gpu']['this_session_hours']}h this session. ~{round(remaining_quota_estimate, 1)}h may remain this week (check kaggle.com/me/account).")
+
+    # Threshold-based warnings come from the central alert engine
+    try:
+        from vigilo.intelligence.alerts import ThresholdEngine
+        active = ThresholdEngine.get().get_active_alerts()
+        for alert in active.get("active", []):
+            warnings.append(alert["message"])
+    except Exception:
+        pass
 
     return warnings
 

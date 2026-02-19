@@ -1,8 +1,10 @@
 import platform
 import time
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 
 from vigilo.core.collector import get_all_metrics
 from vigilo.core.gpu import get_gpu_metrics, is_gpu_available
@@ -11,6 +13,11 @@ from vigilo.platforms.detector import detect_platform
 
 _start_time = time.time()
 _detected_platform = detect_platform()
+
+try:
+    _DASHBOARD_HTML = (Path(__file__).parent / "dashboard.html").read_text(encoding="utf-8")
+except FileNotFoundError:
+    _DASHBOARD_HTML = "<h1>Vigilo</h1><p>Dashboard file not found. API available at /health</p>"
 
 app = FastAPI(
     title="Vigilo Agent",
@@ -24,6 +31,19 @@ app.add_middleware(
     allow_methods=["GET"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+def _on_startup():
+    """Start background services when the API server boots."""
+    from vigilo.intelligence.history import MetricHistory
+    MetricHistory.get().start()
+
+
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+def dashboard():
+    """Serve the live monitoring dashboard."""
+    return HTMLResponse(content=_DASHBOARD_HTML)
 
 
 @app.get("/health")
@@ -112,9 +132,54 @@ def llm_latency(model: str = ""):
     return tracker.get_latency_trend(model=model or None)
 
 
+@app.get("/predictions/oom")
+def predictions_oom():
+    """Predict out-of-memory events based on memory usage trends."""
+    from vigilo.intelligence.oom import OOMPredictor
+    predictor = OOMPredictor()
+    return predictor.predict()
+
+
+@app.get("/history/memory")
+def history_memory(minutes: float = 5):
+    """Memory usage history over the last N minutes (for graphing and predictions)."""
+    from vigilo.intelligence.history import MetricHistory
+    history = MetricHistory.get()
+    readings = history.get_memory_history(last_n_minutes=minutes)
+    return {
+        "readings": readings,
+        "count": len(readings),
+        "period_minutes": minutes,
+        "total_readings_stored": history.reading_count,
+    }
+
+
+@app.get("/alerts")
+def alerts(limit: int = 50):
+    """Full alert history for this session."""
+    from vigilo.intelligence.alerts import ThresholdEngine
+    return ThresholdEngine.get().get_alerts(limit=limit)
+
+
+@app.get("/alerts/active")
+def alerts_active():
+    """Currently active alerts (fired within their cooldown window)."""
+    from vigilo.intelligence.alerts import ThresholdEngine
+    return ThresholdEngine.get().get_active_alerts()
+
+
 @app.get("/tasks")
 def tasks():
-    return {
-        "active_tasks": [],
-        "message": "Task tracking coming soon -- will monitor long-running processes, training runs, and notebook sessions.",
-    }
+    """Tracked tasks — training progress, ETAs, and completion status."""
+    from vigilo.intelligence.progress import ProgressTracker
+    return ProgressTracker.get().get_tasks()
+
+
+@app.get("/tasks/{task_id}")
+def task_detail(task_id: str):
+    """Get details of a single tracked task."""
+    from vigilo.intelligence.progress import ProgressTracker
+    task = ProgressTracker.get().get_task(task_id)
+    if task is None:
+        return {"error": f"Task '{task_id}' not found"}
+    return task

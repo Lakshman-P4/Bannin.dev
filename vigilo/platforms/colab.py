@@ -260,45 +260,25 @@ def _get_hard_limits() -> dict:
 def _generate_warnings(tier: str) -> list[str]:
     warnings = []
 
-    # Session time
-    session = _get_session_info(tier)
-    remaining_min = session["remaining_seconds"] / 60
-    if remaining_min < 15:
-        warnings.append(f"SESSION CRITICAL: Only {round(remaining_min)} minutes left! Save your work NOW.")
-    elif remaining_min < 30:
-        warnings.append(f"SESSION URGENT: {round(remaining_min)} minutes remaining. Consider checkpointing.")
-    elif remaining_min < 60:
-        warnings.append(f"SESSION WARNING: About {round(remaining_min)} minutes remaining.")
-
-    # GPU
+    # Platform-specific binary checks (not threshold-based)
     gpu = _get_gpu_info()
     if not gpu["assigned"]:
         warnings.append("NO GPU: No GPU assigned. You may have been throttled or GPU is unavailable.")
-    if gpu["memory_percent"] is not None and gpu["memory_percent"] > 90:
-        warnings.append(f"GPU MEMORY CRITICAL: {gpu['memory_percent']}% VRAM used. OOM crash imminent!")
-    elif gpu["memory_percent"] is not None and gpu["memory_percent"] > 80:
-        warnings.append(f"GPU MEMORY HIGH: {gpu['memory_percent']}% VRAM used. Risk of out-of-memory crash.")
     if gpu["temperature_c"] is not None and gpu["temperature_c"] > 85:
         warnings.append(f"GPU HOT: Temperature at {gpu['temperature_c']}C. May cause thermal throttling.")
 
-    # RAM
-    ram = _get_ram_info(tier)
-    if ram["percent"] > 90:
-        warnings.append(f"RAM CRITICAL: {ram['percent']}% used. Runtime will crash if memory is exhausted.")
-    elif ram["percent"] > 80:
-        warnings.append(f"RAM HIGH: {ram['percent']}% used ({ram['available_gb']} GB available).")
-
-    # Storage
-    storage = _get_storage_info(tier)
-    if storage["free_gb"] is not None and storage["free_gb"] < 1:
-        warnings.append(f"DISK CRITICAL: Only {storage['free_gb']} GB free. Operations will fail.")
-    elif storage["free_gb"] is not None and storage["free_gb"] < 3:
-        warnings.append(f"DISK LOW: Only {storage['free_gb']} GB free. Save important files to Drive.")
-
-    # Drive
     drive = _get_drive_info()
     if not drive["mounted"]:
         warnings.append("DRIVE NOT MOUNTED: Cannot save checkpoints to Google Drive. Data will be lost on disconnect.")
+
+    # Threshold-based warnings come from the central alert engine
+    try:
+        from vigilo.intelligence.alerts import ThresholdEngine
+        active = ThresholdEngine.get().get_active_alerts()
+        for alert in active.get("active", []):
+            warnings.append(alert["message"])
+    except Exception:
+        pass
 
     return warnings
 
