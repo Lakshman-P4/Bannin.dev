@@ -1226,6 +1226,25 @@ This confirms the MCP integration works end-to-end: Claude Code calls the MCP se
 
 ---
 
+## Anthropic API Key — End-to-End LLM Wrapper Verified (19 February 2026)
+
+The LLM wrapper gap from Phase 1c is now **closed**. A real Anthropic API key ($5 credit) was used to make 5 live API calls through `vigilo.wrap()`. The dashboard screenshot confirms:
+
+| Metric | Value | Verdict |
+|---|---|---|
+| Total tokens tracked | 280 | PASS — real tokens from real API calls |
+| Total cost calculated | $0.0010 | PASS — correct pricing applied |
+| Average latency | 1.46s | PASS — real response times measured |
+| Total calls | 5 | PASS — all calls intercepted |
+| Provider detected | Anthropic | PASS — correct provider identification |
+| Progress tracker | 5/5 completed (stdout pattern) | PASS — detected the call counter |
+
+**One minor issue noted**: The per-provider breakdown shows "0 tokens" for Anthropic while the total shows 280. This is a token counting display bug in the provider summary — the per-call tracking works correctly. To be investigated.
+
+**What this proves**: The full pipeline works — `vigilo.wrap(Anthropic())` → real API call → token extraction → cost calculation → latency measurement → dashboard display. This was the last unverified gap in the LLM monitoring system.
+
+---
+
 ## Challenges & Decisions
 
 ### Challenge 1: Alert Spam (SOLVED)
@@ -1316,3 +1335,135 @@ The intelligence engine is the foundation for everything that comes next: phone 
 ---
 
 *Next: Phase 3 — Connectivity (relay server, authentication, WebSocket streaming, push notifications)*
+
+---
+---
+
+# Strategic Notes — Enterprise Market Opportunity
+
+**Date**: 19 February 2026
+**Status**: Research & planning only. Not a build phase. Depends on Phase 3+ infrastructure.
+
+---
+
+## The Opportunity: AI Product Studios & Consultancies
+
+During Phase 2 review, a market opportunity was identified beyond the individual user: **companies that build AI products for clients**. Not enterprise infrastructure monitoring (Datadog's territory), but a specific niche — AI/tech consultancies and product studios that build and ship AI-powered products to customers.
+
+### Why This Niche
+
+These companies have a unique problem that no current tool solves well:
+- They use **multiple LLM providers** across multiple client projects (OpenAI for Client A, Claude for Client B, Gemini for Client C)
+- They need to **track and report costs per client** for billing
+- They need **team-wide visibility** across all projects
+- They can't justify enterprise pricing ($500+/month) but spreadsheets break at scale
+- Their engineers are the exact Vigilo persona — they use Claude Code, Colab, multiple LLM APIs daily
+
+### Reference Companies (researched 19 Feb 2026)
+
+Two companies were studied to understand the market:
+
+**ThinkingCode Technologies** (Bangalore/Kochi, India)
+- ~40-80 employees, founded 2010
+- Builds production-grade industrial AI systems and enterprise platforms
+- "Product Pod" model: dedicated engineering pods per client/startup
+- 50+ startups launched through their pods
+- Enterprise clients in US healthcare/insurance (compliance requirements)
+- Has a dedicated AI spin-off: ThinkingCode.ai
+- Revenue estimated $10-25M (ZoomInfo)
+
+**Lyra Technologies** (Sydney, Australia)
+- ~63 employees, founded 2022
+- Product studio that embeds engineers directly into Silicon Valley startups
+- 75+ client projects, backed by YC/a16z/Sequoia network
+- "Forward Deployed Engineer" model — engineers work inside client teams
+- Cash + equity business model (long-term alignment)
+- Notable clients: Paraform, 88 Rising, Soma Capital, Prosights (YC W24), Microsoft
+- Engineers recruited from Canva, Instagram, Y Combinator startups
+
+### Why These Companies Would Use Vigilo
+
+| Pain Point | Current Solution | Vigilo Solution |
+|---|---|---|
+| Multi-provider LLM cost tracking across projects | Manually check 3+ provider dashboards, combine in spreadsheets | One dashboard: cost by client, by provider, by engineer |
+| "How much did our AI usage cost this month?" from clients | 2+ hours pulling data per client per month | `vigilo.track("client-name")` → auto-generated usage report |
+| Engineering lead wants team utilization view | Ask each engineer individually | Team activity feed: who's running what, aggregate cost |
+| Engineer hits OOM during client demo | Finds out when the demo crashes | Alert 10 minutes before |
+| Forward-deployed engineer on client infrastructure | No visibility into what they're doing | Per-engineer tracking regardless of whose API keys are used |
+
+### Competitive Positioning
+
+| Alternative | Price | Why It Falls Short |
+|---|---|---|
+| Datadog | $15-23/host/month ($1K+/mo for 63 engineers) | Infrastructure monitoring, not LLM project tracking. Wrong tool, wrong price |
+| Langfuse | $59-499/month | LLM-only. No system monitoring, no notebook awareness, no phone alerts. Scales by traces |
+| Helicone | $80-400/month | OpenAI-focused. Doesn't help with multi-provider projects |
+| W&B | Per-user pricing | ML experiment tracking, not LLM API cost management |
+| Manual spreadsheets | Free | Works at 3 clients, breaks at 75 |
+
+Vigilo's position: **unified LLM cost tracking + system monitoring + notebook awareness + phone alerts** at a price point these companies can justify.
+
+### Features Required (not yet built — Phase 3+)
+
+| Feature | Why | Depends On |
+|---|---|---|
+| Project/client workspaces | Isolate data per client project | Relay server (Phase 3) |
+| Role-based access | Engineers see their projects, leads see all, clients see their own | Auth system (Phase 3) |
+| Usage reports (exportable) | Per-client monthly cost reports for billing | Relay + data aggregation |
+| Team-wide dashboard | Engineering lead sees all agents and aggregate cost | Relay + multi-user |
+| SSO (Google/GitHub) | 63 people won't use email magic links | Auth upgrade |
+| Self-hosted option | Healthcare/insurance clients (ThinkingCode) need data sovereignty | Relay as deployable package |
+| Webhook/Slack alerts | Teams this size live in Slack, not individual phone apps | Relay + integrations |
+| Audit trail | "Which engineer ran 50K tokens on Tuesday?" for cost allocation | Relay + logging |
+| API access to usage data | Integrate Vigilo data into client dashboards | Relay API |
+
+### Proposed Pricing Model
+
+Priced low intentionally. This product was born from personally experiencing the same problems these teams face. The goal is adoption first, not margin. Build a user base, get feedback, prove people will pay — then adjust.
+
+```
+Free:          1 developer, local only                              $0/month
+Personal:      1 developer, phone alerts, relay                     $5/month
+Team (≤25):    Shared workspace, project tracking, Slack alerts     $100/month
+Studio (≤100): Multi-project, client reporting, SSO, API access     $300/month
+Enterprise:    Self-hosted, audit trail, SLA, custom integrations   Custom
+```
+
+For Lyra at 63 engineers: $300/month replaces hours of manual cost tracking per week across 75+ clients.
+For ThinkingCode with compliance needs: Enterprise tier with self-hosted deployment.
+
+### Before Any of This: Validate Demand
+
+Enterprise pricing is meaningless without users. The real path:
+1. **Ship the free tier** — open-source agent, pip install, works locally out of the box
+2. **Build a user base** — organic adoption through Claude Code MCP, PyPI, Reddit, Kaggle community
+3. **Trial period** — let early users try Personal tier free for 30 days
+4. **Get real feedback** — do people actually use alerts? Do they check the dashboard? What's missing?
+5. **See if people will pay** — the $5/month Personal tier is the first real test of willingness to pay
+6. **Only then** pursue team/studio tiers based on what users are actually asking for
+
+### Adoption Funnel
+
+1. One engineer discovers Vigilo through Claude Code MCP or `pip install vigilo`
+2. Uses it personally (free tier) — loves the LLM tracking and context window prediction
+3. Realizes "I could track costs per client with this"
+4. Brings it to their team lead: "This replaces our manual cost reporting"
+5. Team signs up → Studio tier
+6. Vigilo becomes part of the company's standard engineering toolkit
+
+### Key Insight
+
+This isn't a pivot from the individual user. It's the natural upsell path. The personal agent IS the enterprise product — it just needs a team layer on top. The `vigilo.track("client-name")` API already exists. Project-level cost rollups are one aggregation query away from what's already being tracked.
+
+### Dependencies
+
+None of this is buildable until:
+- **Phase 3** (relay server, authentication, WebSocket streaming) — the networking backbone
+- **Phase 5** (phone app) — proves the mobile delivery works
+- **Then** team features, workspaces, reporting, SSO can layer on top
+
+This is documented here for future reference. The current priority remains: finish Phase 3 (connectivity), then Phase 4 (MCP + actions), then Phase 5 (phone app). Enterprise features come after the core product loop works for individual users.
+
+---
+
+*Current priority: Phase 3 — Connectivity*
