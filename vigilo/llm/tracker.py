@@ -96,10 +96,11 @@ class LLMTracker:
         for c in calls:
             p = c["provider"]
             if p not in by_provider:
-                by_provider[p] = {"calls": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}
+                by_provider[p] = {"calls": 0, "input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "cost_usd": 0.0}
             by_provider[p]["calls"] += 1
             by_provider[p]["input_tokens"] += c["input_tokens"]
             by_provider[p]["output_tokens"] += c["output_tokens"]
+            by_provider[p]["total_tokens"] += c["input_tokens"] + c["output_tokens"]
             by_provider[p]["cost_usd"] = round(by_provider[p]["cost_usd"] + c["cost_usd"], 6)
 
         # Group by model
@@ -107,10 +108,11 @@ class LLMTracker:
         for c in calls:
             m = c["model"]
             if m not in by_model:
-                by_model[m] = {"calls": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}
+                by_model[m] = {"calls": 0, "input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "cost_usd": 0.0}
             by_model[m]["calls"] += 1
             by_model[m]["input_tokens"] += c["input_tokens"]
             by_model[m]["output_tokens"] += c["output_tokens"]
+            by_model[m]["total_tokens"] += c["input_tokens"] + c["output_tokens"]
             by_model[m]["cost_usd"] = round(by_model[m]["cost_usd"] + c["cost_usd"], 6)
 
         # Warnings
