@@ -105,8 +105,8 @@
 
   "intelligence": {
     "_note": "Phase 2 intelligence engine configuration. Controls metric history, OOM prediction, progress detection, alerts, and health scoring.",
-    "collection_interval_seconds": 5,
-    "history_max_readings": 360,
+    "collection_interval_seconds": 2,
+    "history_max_readings": 900,
 
     "oom": {
       "min_data_points": 12,

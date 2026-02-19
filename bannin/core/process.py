@@ -1,12 +1,23 @@
 import psutil
 
+_cpu_primed = False
+
 
 def get_top_processes(limit: int = 10) -> list[dict]:
+    global _cpu_primed
+    if not _cpu_primed:
+        # First call only: prime cpu_percent (returns 0.0 without a baseline)
+        for proc in psutil.process_iter(["cpu_percent"]):
+            pass
+        import time
+        time.sleep(0.1)
+        _cpu_primed = True
+
     processes = []
-    for proc in psutil.process_iter(["pid", "name", "cpu_percent", "memory_percent", "status", "create_time"]):
+    for proc in psutil.process_iter(["pid", "name", "cpu_percent", "memory_percent", "status"]):
         try:
             info = proc.info
-            if info["cpu_percent"] is None:
+            if info["pid"] == 0 or info["cpu_percent"] is None:
                 continue
             processes.append({
                 "pid": info["pid"],
@@ -18,7 +29,7 @@ def get_top_processes(limit: int = 10) -> list[dict]:
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
 
-    processes.sort(key=lambda p: p["cpu_percent"], reverse=True)
+    processes.sort(key=lambda p: (p["cpu_percent"], p["memory_percent"]), reverse=True)
     return processes[:limit]
 
 

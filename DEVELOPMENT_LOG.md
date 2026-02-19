@@ -1337,6 +1337,108 @@ The intelligence engine is the foundation for everything that comes next: phone 
 *Next: Phase 3 — Connectivity (relay server, authentication, WebSocket streaming, push notifications)*
 
 ---
+
+# Post-Phase 2 Fixes — Dashboard & Intelligence Polish
+
+**Date**: 19 February 2026
+**Goal**: Fix bugs and UX issues discovered during Phase 2 testing. Make the dashboard and MCP intelligence production-quality before moving to Phase 3.
+**Status**: COMPLETE
+
+---
+
+## What Was Fixed
+
+Six issues were identified during hands-on testing of the live dashboard and MCP server. All resolved.
+
+### Fix 1: Dashboard Process List Showing "No process data"
+
+**The problem**: The "Top Processes" card on the dashboard always showed "No process data" even though the `/processes` API returned real data.
+
+**Root cause**: A property name mismatch. The API returns `top_processes` but the dashboard JavaScript was looking for `processes`. The key never matched, so it fell through to the empty state.
+
+**The fix**: One-line change in `dashboard.html` — `data.processes` → `data.top_processes`.
+
+### Fix 2: Process CPU Values All Showing 0.0%
+
+**The problem**: When processes did load, every single one showed 0.0% CPU. The top entries were system internals like "System Idle Process" instead of actual resource consumers.
+
+**Root cause**: On Windows, psutil's `cpu_percent` returns 0.0 on the first call — it needs two measurements to calculate the delta. The function was creating a fresh one-shot snapshot every time.
+
+**The fix**: Two-pass measurement on first call only. First call primes the CPU baseline (with a 100ms pause), subsequent calls skip straight to reading values. Also filters out pid 0 (System Idle Process) and sorts by memory as secondary key.
+
+### Fix 3: MCP Server Not Starting Intelligence Modules
+
+**The problem**: When Claude Code queried the MCP server, `predict_oom` returned "No metric history available" and `get_active_alerts` returned empty — even when RAM was at 90% and CPU at 100%.
+
+**Root cause**: The MCP server imported intelligence modules directly but never started the `MetricHistory` background collection thread. The ring buffer existed but never collected data.
+
+**The fix**: Added `MetricHistory.get().start()` to the MCP server's `serve()` function. Now when Claude Code connects, the intelligence engine starts collecting automatically.
+
+**Verified**: After restart, `predict_oom` returned real predictions (RAM at 85.8%, 12 data points) and `get_active_alerts` returned 2 active alerts (RAM HIGH, CPU SUSTAINED HIGH).
+
+### Fix 4: OOM Prediction Showing Confusing Numbers
+
+**The problem**: On a regular laptop with stable memory, the OOM card showed "→ ∞ OK 13% conf" — meaningless to any user. OOM prediction is designed for training runs with steadily growing memory, not normal laptop usage.
+
+**The fix**: Smart display logic in the dashboard. When memory is stable (no upward trend, low confidence, or "ok" severity), shows a clean message: "Memory stable — 85% used". The detailed prediction (trend arrow, minutes until full, confidence score) only appears when memory is actually growing dangerously.
+
+### Fix 5: Metric Collection Too Slow (60 Seconds to First Prediction)
+
+**The problem**: The intelligence engine collected a snapshot every 5 seconds and needed 12 data points for predictions. That meant 60 seconds of "Collecting data..." before any prediction appeared.
+
+**The fix**: Reduced collection interval from 5 seconds to 2 seconds. 12 data points now takes 24 seconds instead of 60. Ring buffer increased from 360 to 900 readings to maintain the same 30-minute history window. Memory impact: ~450 KB total (still trivial).
+
+**Tradeoff considered**: 0.5 seconds was evaluated but rejected — on a stressed machine (like the test laptop at 85% RAM), checking pulse twice per second adds noticeable overhead. 2 seconds is the sweet spot: fast predictions, invisible overhead.
+
+### Fix 6: Dashboard "LIVE" Badge Flickering to "OFFLINE"
+
+**The problem**: The LIVE/OFFLINE badge would briefly flicker to "OFFLINE" between dashboard polls, especially on a stressed machine where fetch requests took longer.
+
+**Root cause**: The badge checked if any successful fetch happened in the last 10 seconds. With the slowest poll running every 10 seconds and fetches sometimes taking 2-3 seconds on a loaded machine, the window would expire momentarily.
+
+**The fix**: Increased the timeout from 10 seconds to 30 seconds. Now the badge only shows "OFFLINE" when the agent is genuinely unreachable, not just slow to respond.
+
+---
+
+## Rebrand: Vigilo → Bannin
+
+**Date**: 19 February 2026
+
+The project was rebranded from "Vigilo" (Latin for "I watch") to "Bannin" (番人, Japanese for "watchman"). ~400+ references updated across 28+ files.
+
+**All active code is fully rebranded.** One legacy doc (`docs/development_log_phase1b_1c.md`) still references "Vigilo" — this is historical documentation from earlier phases and was left as-is.
+
+---
+
+## Files Changed
+
+| File | Change |
+|---|---|
+| `bannin/dashboard.html` | Fixed process key mismatch, smart OOM display, increased offline timeout |
+| `bannin/core/process.py` | Two-pass CPU priming (first call only), filter pid 0, secondary sort by memory |
+| `bannin/mcp/server.py` | Start MetricHistory on MCP server boot |
+| `bannin/intelligence/history.py` | Default interval 5s → 2s, buffer 360 → 900 |
+| `bannin/config/defaults.json` | `collection_interval_seconds`: 5 → 2, `history_max_readings`: 360 → 900 |
+
+---
+
+## Test Results
+
+| Test | Result |
+|---|---|
+| Dashboard process list shows real processes with CPU % | PASS |
+| System Idle Process (pid 0) filtered out | PASS |
+| MCP `predict_oom` returns real predictions after ~24s | PASS |
+| MCP `get_active_alerts` fires RAM HIGH and CPU HIGH alerts | PASS |
+| OOM card shows "Memory stable" on normal laptop | PASS |
+| LIVE badge stays solid during normal operation | PASS |
+| LLM Usage card shows correct provider/token/cost data | PASS |
+
+---
+
+*Next: Phase 3 — Connectivity*
+
+---
 ---
 
 # Strategic Notes — Enterprise Market Opportunity

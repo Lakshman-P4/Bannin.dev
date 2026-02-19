@@ -15,8 +15,11 @@ Bannin is a universal monitoring platform that watches everything you run — yo
 - **Phase 1a: Python Agent Core** — COMPLETE (18 February 2026)
 - **Phase 1b: Cloud Notebook Monitoring (Colab/Kaggle)** — COMPLETE (verified on real Colab + Kaggle, 18 February 2026)
 - **Phase 1c: LLM Health Monitoring & Token Tracking** — COMPLETE (18 February 2026)
+- **Phase 2: Intelligence Engine** — COMPLETE (19 February 2026)
+- **Rebrand: Vigilo → Bannin** — COMPLETE (19 February 2026)
+- **Post-Phase 2 Fixes** — COMPLETE (19 February 2026) — dashboard process display, OOM UX, MCP intelligence auto-start, collection speed, offline detection
 
-The Python agent is functional: `pip install bannin`, `bannin start`, and the local API at `localhost:8420` serves live system metrics. See `development_log.md` for full details of what was built, tested, and the challenges encountered.
+The Python agent is functional: `pip install bannin`, `bannin start`, and the local API at `localhost:8420` serves live system metrics with intelligence (OOM prediction, alerts, progress tracking). See `development_log.md` for full details of what was built, tested, and the challenges encountered.
 
 ## Architecture
 
@@ -189,12 +192,17 @@ Bannin's moat: unified relay (one dashboard for everything), intelligence levels
 - Smart model name matching (handles date-suffixed variants)
 - Double-wrap protection, mock-tested with simulated clients
 
-### Phase 2: Intelligence Engine
+### Phase 2: Intelligence Engine — ✅ COMPLETE
 - OOM prediction engine (memory growth rate extrapolation, >70% confidence threshold)
 - Progress detection (tqdm hook, stdout regex parsing)
 - ETA calculator
-- Threshold engine for L1 alerts
-- MCP server (basic — get_system_metrics, get_training_status, predict_oom)
+- Threshold engine for L1 alerts (17+ configurable rules, cooldowns, platform filtering)
+- MCP server (get_system_metrics, get_running_processes, predict_oom, get_training_status, get_active_alerts)
+- Live monitoring dashboard at localhost:8420 (system metrics, LLM usage, alerts, OOM, progress, memory chart)
+- Metric history ring buffer (2-second intervals, 30-minute window)
+- MCP server auto-starts intelligence modules (predictions and alerts work for Claude Code)
+- Dashboard: smart OOM display (shows "Memory stable" when no trend, details only when critical)
+- Collection interval: 2 seconds (predictions available in ~24 seconds)
 
 ### Phase 3: Connectivity
 - Node.js relay server (DigitalOcean, $10-15/mo)
@@ -269,12 +277,13 @@ Bannin's moat: unified relay (one dashboard for everything), intelligence levels
 - **Browser Extension**: no data collection, DOM parsing runs locally, sends only metrics to relay via authenticated connection
 - **Agent Actions**: L3 requires explicit user confirmation, L4 requires user-defined policy, no action without consent by default
 
-## Known Issues / Constraints from Phase 1a
+## Known Issues / Constraints
 
 - **Windows PATH**: CLI may not be on PATH after pip install --user. Workaround: `python -m bannin.cli start`. Document in README.
 - **Port conflict**: Starting agent twice causes port 8420 conflict. Need graceful detection ("Bannin already running").
-- **GPU untested**: pynvml code written but not tested on NVIDIA hardware. Needs testing on GPU machine or Colab.
+- **GPU verified**: pynvml tested on real Tesla T4 in Colab (19 Feb 2026). All readings correct.
 - **Colab/Kaggle verified**: Tested on real platforms. Colab disk was 107 GB (not 50 GB assumed). Kaggle uses 8 TB shared filesystem (focus on 20 GB output limit). Both corrected.
+- **Rebrand**: Project was originally "Vigilo", rebranded to "Bannin" (番人, Japanese for "watchman") on 19 Feb 2026. ~400+ references updated across 28+ files. One legacy doc (`docs/development_log_phase1b_1c.md`) still references Vigilo — historical only.
 
 ## References
 

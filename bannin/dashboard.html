@@ -252,7 +252,7 @@ async function fetchJSON(url) {
 
 var lastSuccess = Date.now();
 function markSuccess() { lastSuccess = Date.now(); }
-function isConnected() { return (Date.now() - lastSuccess) < 10000; }
+function isConnected() { return (Date.now() - lastSuccess) < 30000; }
 
 function updateConnectionBadge() {
     var badge = document.getElementById("live-badge");
@@ -368,11 +368,16 @@ function updateOOM(data) {
         if (ram.data_points != null && ram.data_points < mp) {
             h += '<div class="oom-collecting">Collecting data (' + ram.data_points + '/' + mp + ' points)&hellip;</div>';
         } else {
-            var ta = ram.trend === "rising" ? "\u2197" : (ram.trend === "falling" ? "\u2198" : "\u2192");
-            var mt = (ram.minutes_until_full != null && ram.minutes_until_full < 999999) ? ram.minutes_until_full.toFixed(0) + " min" : "\u221e";
             var sv = (ram.severity || "ok").toLowerCase();
-            var cf = ram.confidence != null ? ram.confidence.toFixed(0) + "% conf" : "";
-            h += '<div class="oom-row"><span class="oom-trend">' + ta + '</span><span class="oom-time">' + mt + '</span><span class="oom-badge ' + sv + '">' + sv + '</span></div><div class="oom-confidence">' + cf + '</div>';
+            var cf = ram.confidence != null ? ram.confidence.toFixed(0) : 0;
+            if (sv === "ok" || sv === "low_confidence" || ram.trend === "stable" || ram.trend === "decreasing") {
+                var pct = ram.current_percent != null ? ram.current_percent.toFixed(0) + "%" : "--";
+                h += '<div class="oom-row"><span class="oom-badge ok">Memory stable</span><span class="oom-time">' + pct + ' used</span></div>';
+            } else {
+                var ta = ram.trend === "increasing" ? "\u2197" : "\u2192";
+                var mt = (ram.minutes_until_full != null && ram.minutes_until_full < 999999) ? ram.minutes_until_full.toFixed(0) + " min" : "\u221e";
+                h += '<div class="oom-row"><span class="oom-trend">' + ta + '</span><span class="oom-time">' + mt + '</span><span class="oom-badge ' + sv + '">' + sv + '</span></div><div class="oom-confidence">' + cf + '% conf</div>';
+            }
         }
         h += '</div>';
     }
@@ -437,7 +442,7 @@ function updateLLM(data) {
 
 function updateProcesses(data) {
     var tbody = document.getElementById("proc-tbody");
-    var procs = Array.isArray(data) ? data : (data && data.processes ? data.processes : []);
+    var procs = Array.isArray(data) ? data : (data && data.top_processes ? data.top_processes : []);
     procs = procs.slice(0, 5);
     if (procs.length === 0) { tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No process data</td></tr>'; return; }
     tbody.innerHTML = procs.map(function(p) {

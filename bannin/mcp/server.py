@@ -113,5 +113,8 @@ def get_active_alerts() -> str:
 
 def serve():
     """Start the Bannin MCP server with stdio transport."""
+    # Start intelligence modules so predictions and alerts work
+    from bannin.intelligence.history import MetricHistory
+    MetricHistory.get().start()
     print("Bannin MCP server starting...", file=sys.stderr)
     mcp.run(transport="stdio")

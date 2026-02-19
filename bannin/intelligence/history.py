@@ -20,7 +20,7 @@ class MetricHistory:
     _instance = None
     _lock = threading.Lock()
 
-    def __init__(self, max_readings: int = 360, interval_seconds: int = 5):
+    def __init__(self, max_readings: int = 900, interval_seconds: int = 2):
         self._max_readings = max_readings
         self._interval = interval_seconds
         self._readings = collections.deque(maxlen=max_readings)
@@ -42,11 +42,11 @@ class MetricHistory:
         try:
             from bannin.config.loader import get_config
             cfg = get_config().get("intelligence", {})
-            max_readings = cfg.get("history_max_readings", 360)
-            interval = cfg.get("collection_interval_seconds", 5)
+            max_readings = cfg.get("history_max_readings", 900)
+            interval = cfg.get("collection_interval_seconds", 2)
         except Exception:
-            max_readings = 360
-            interval = 5
+            max_readings = 900
+            interval = 2
         return cls(max_readings=max_readings, interval_seconds=interval)
 
     @classmethod
