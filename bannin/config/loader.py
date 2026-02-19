@@ -5,10 +5,10 @@ import urllib.request
 from pathlib import Path
 
 # Where to fetch the latest config from (GitHub raw URL once project is public)
-REMOTE_CONFIG_URL = "https://raw.githubusercontent.com/Lakshman-P4/Vigilo.dev/main/vigilo/config/defaults.json"
+REMOTE_CONFIG_URL = "https://raw.githubusercontent.com/Lakshman-P4/Bannin.dev/main/bannin/config/defaults.json"
 
 # Cache remote config locally so we don't fetch every time
-_CACHE_DIR = Path.home() / ".vigilo"
+_CACHE_DIR = Path.home() / ".bannin"
 _CACHE_FILE = _CACHE_DIR / "platform_config.json"
 _CACHE_MAX_AGE = 24 * 3600  # Re-fetch once per day
 
@@ -86,7 +86,7 @@ def _cache_is_stale() -> bool:
 def _fetch_remote() -> dict | None:
     """Fetch latest config from GitHub. Returns None on any failure (no internet, timeout, etc.)."""
     try:
-        req = urllib.request.Request(REMOTE_CONFIG_URL, headers={"User-Agent": "vigilo-agent/0.1.0"})
+        req = urllib.request.Request(REMOTE_CONFIG_URL, headers={"User-Agent": "bannin-agent/0.1.0"})
         with urllib.request.urlopen(req, timeout=5) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             return data

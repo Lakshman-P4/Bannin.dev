@@ -23,8 +23,8 @@ env/
 Thumbs.db
 desktop.ini
 
-# Vigilo cache
-.vigilo/
+# Bannin cache
+.bannin/
 
 # Claude Code internals
 .claude/

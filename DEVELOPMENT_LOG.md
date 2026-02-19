@@ -1,4 +1,4 @@
-# Vigilo Development Log
+# Bannin Development Log
 
 ---
 
@@ -7,9 +7,9 @@
 **Date**: 18–19 February 2026
 **Status**: COMPLETE
 
-Phases 1 and 2 built the engine and brain of Vigilo — the data collection backbone that watches, measures, reports, AND now predicts and alerts. No user-facing interface yet (no phone app, no browser extension), but the entire monitoring and intelligence system is working.
+Phases 1 and 2 built the engine and brain of Bannin — the data collection backbone that watches, measures, reports, AND now predicts and alerts. No user-facing interface yet (no phone app, no browser extension), but the entire monitoring and intelligence system is working.
 
-### What Vigilo Can Now Do
+### What Bannin Can Now Do
 
 **Observe Your Machine (Phase 1a)** — CPU, RAM, disk, network, GPU temperature/power/VRAM, running processes. Tested on Windows laptop and Google Colab with Tesla T4 GPU.
 
@@ -38,7 +38,7 @@ Full end-to-end LLM token tracking needs a funded API key to demonstrate. The wr
 
 ### What's Next
 
-Phase 3 — Connectivity. Vigilo becomes a networked system: relay server, email authentication, WebSocket streaming from agent to cloud, and push notifications to your phone. The jump from "local intelligence" to "alerts on your phone."
+Phase 3 — Connectivity. Bannin becomes a networked system: relay server, email authentication, WebSocket streaming from agent to cloud, and push notifications to your phone. The jump from "local intelligence" to "alerts on your phone."
 
 ---
 
@@ -52,7 +52,7 @@ Phase 3 — Connectivity. Vigilo becomes a networked system: relay server, email
 
 ## What Was Built
 
-The Vigilo Python Agent — the "engine" of the entire platform. This is the first piece that every other component (phone app, relay server, MCP server, browser extension) will depend on.
+The Bannin Python Agent — the "engine" of the entire platform. This is the first piece that every other component (phone app, relay server, MCP server, browser extension) will depend on.
 
 Think of it like installing a health sensor on your computer. Once it's running, anything can ask "How's this machine doing?" and get an instant answer.
 
@@ -60,14 +60,14 @@ Think of it like installing a health sensor on your computer. Once it's running,
 
 | File | What It Does | Plain English |
 |---|---|---|
-| `pyproject.toml` | Package configuration | The "recipe card" — tells Python what Vigilo is, what it needs to install, and how to run it |
-| `setup.py` | Install compatibility | A small helper that makes `pip install vigilo` work on all systems |
-| `vigilo/__init__.py` | Public API | The front door — gives developers the `vigilo.watch()` and `Vigilo()` interface |
-| `vigilo/core/collector.py` | System metrics | Reads CPU, RAM, disk, and network stats using `psutil` |
-| `vigilo/core/gpu.py` | GPU metrics | Reads NVIDIA GPU stats (temperature, memory, utilization) if available |
-| `vigilo/core/process.py` | Process monitor | Lists the top processes running on the machine and their resource usage |
-| `vigilo/api.py` | REST API server | The web server at `localhost:8420` that exposes all metrics as JSON endpoints |
-| `vigilo/cli.py` | Command line tool | The `vigilo start` command that launches the agent |
+| `pyproject.toml` | Package configuration | The "recipe card" — tells Python what Bannin is, what it needs to install, and how to run it |
+| `setup.py` | Install compatibility | A small helper that makes `pip install bannin` work on all systems |
+| `bannin/__init__.py` | Public API | The front door — gives developers the `bannin.watch()` and `Bannin()` interface |
+| `bannin/core/collector.py` | System metrics | Reads CPU, RAM, disk, and network stats using `psutil` |
+| `bannin/core/gpu.py` | GPU metrics | Reads NVIDIA GPU stats (temperature, memory, utilization) if available |
+| `bannin/core/process.py` | Process monitor | Lists the top processes running on the machine and their resource usage |
+| `bannin/api.py` | REST API server | The web server at `localhost:8420` that exposes all metrics as JSON endpoints |
+| `bannin/cli.py` | Command line tool | The `bannin start` command that launches the agent |
 
 ### API Endpoints (what the agent exposes)
 
@@ -83,17 +83,17 @@ Think of it like installing a health sensor on your computer. Once it's running,
 
 **Option 1 — Command line:**
 ```
-pip install vigilo
-vigilo start
+pip install bannin
+bannin start
 ```
 The agent runs in background, API is live at `http://127.0.0.1:8420`.
 
 **Option 2 — Inside Python code:**
 ```python
-import vigilo
+import bannin
 
-with vigilo.watch():
-    train_my_model()  # Vigilo monitors the system while this runs
+with bannin.watch():
+    train_my_model()  # Bannin monitors the system while this runs
 ```
 
 ---
@@ -138,7 +138,7 @@ with vigilo.watch():
 
 **What this tells us:**
 - CPU is mostly idle (18.8%) — normal for a laptop not running heavy tasks
-- RAM is critically high at 91.3% — only 0.68 GB free out of 7.78 GB. This is exactly the kind of thing Vigilo will eventually push as a phone alert.
+- RAM is critically high at 91.3% — only 0.68 GB free out of 7.78 GB. This is exactly the kind of thing Bannin will eventually push as a phone alert.
 - Disk is at 75% — healthy, 59 GB free
 - No GPU detected (expected — this laptop has no NVIDIA GPU)
 
@@ -146,7 +146,7 @@ with vigilo.watch():
 
 ```json
 {
-    "agent": "vigilo",
+    "agent": "bannin",
     "version": "0.1.0",
     "hostname": "LAPTOP-M0LQJJMQ",
     "platform": "Windows",
@@ -201,13 +201,13 @@ The system cannot find the file specified: 'C:\Python311\Scripts\uvicorn.exe'
 
 ### Challenge 2: CLI Not on PATH (MINOR — workaround exists)
 
-**What happened:** After install, the `vigilo` command wasn't recognised in the terminal.
+**What happened:** After install, the `bannin` command wasn't recognised in the terminal.
 
 **Why:** The executable installed to `C:\Users\laksh\AppData\Roaming\Python\Python311\Scripts\` which isn't in the system PATH.
 
-**Workaround:** Use `python -m vigilo.cli start` instead — works reliably everywhere.
+**Workaround:** Use `python -m bannin.cli start` instead — works reliably everywhere.
 
-**Impact on users:** We should add PATH instructions to the README, or recommend `python -m vigilo.cli start` as the default.
+**Impact on users:** We should add PATH instructions to the README, or recommend `python -m bannin.cli start` as the default.
 
 ---
 
@@ -220,7 +220,7 @@ errno 10048: Only one usage of each socket address is normally permitted
 
 **Why:** The previous instance was still running on port 8420.
 
-**Fix:** Killed the process holding the port. In future, the agent should detect this and either reuse the existing instance or show a clear error message like "Vigilo is already running on port 8420."
+**Fix:** Killed the process holding the port. In future, the agent should detect this and either reuse the existing instance or show a clear error message like "Bannin is already running on port 8420."
 
 **Impact on users:** Need to add graceful handling — detect if port is taken, offer to stop the old instance.
 
@@ -249,8 +249,8 @@ Phase 1a delivers the **L0 (Observe)** capability — the agent can observe and 
 | Process monitoring (top processes by usage) | DONE | Phone app can show what's eating resources |
 | Local REST API at localhost:8420 | DONE | Any client (phone, MCP, browser) can read metrics |
 | pip-installable package | DONE | Users can install with one command |
-| `vigilo.watch()` context manager | DONE | Developers can wrap code blocks with monitoring |
-| CLI entry point (`vigilo start`) | DONE | Users can start the agent from terminal |
+| `bannin.watch()` context manager | DONE | Developers can wrap code blocks with monitoring |
+| CLI entry point (`bannin start`) | DONE | Users can start the agent from terminal |
 
 ### What we DON'T have yet (coming in later phases)
 
@@ -266,32 +266,32 @@ Phase 1a delivers the **L0 (Observe)** capability — the agent can observe and 
 
 ### The Key Takeaway
 
-**Phase 1a proves the core concept works.** You can install Vigilo, run it, and instantly see live data about your machine through a clean API. Every number shown is real, live, and updating. The foundation is solid — now we build features on top of it.
+**Phase 1a proves the core concept works.** You can install Bannin, run it, and instantly see live data about your machine through a clean API. Every number shown is real, live, and updating. The foundation is solid — now we build features on top of it.
 
 ---
 
 # Phase 1b — Google Colab & Kaggle Notebook Monitoring
 
 **Date**: 18 February 2026
-**Goal**: Make Vigilo smart enough to know WHERE it's running (your laptop, Colab, or Kaggle) and automatically track every constraint and limit that platform imposes.
+**Goal**: Make Bannin smart enough to know WHERE it's running (your laptop, Colab, or Kaggle) and automatically track every constraint and limit that platform imposes.
 **Status**: COMPLETE
 
 ---
 
 ## What Was Built
 
-Vigilo now has "platform awareness." When someone installs Vigilo in a Colab or Kaggle notebook, it automatically detects the environment and starts monitoring everything specific to that platform — session timers, GPU quotas, storage limits, and more.
+Bannin now has "platform awareness." When someone installs Bannin in a Colab or Kaggle notebook, it automatically detects the environment and starts monitoring everything specific to that platform — session timers, GPU quotas, storage limits, and more.
 
-Think of it like this: Phase 1a gave Vigilo eyes to see your machine's health. Phase 1b taught it to recognize which ROOM it's in and understand the rules of that room.
+Think of it like this: Phase 1a gave Bannin eyes to see your machine's health. Phase 1b taught it to recognize which ROOM it's in and understand the rules of that room.
 
 ### Components Created
 
 | File | What It Does | Plain English |
 |---|---|---|
-| `vigilo/platforms/detector.py` | Platform detection | The "where am I?" check — figures out if Vigilo is running on your laptop, inside Google Colab, or inside Kaggle |
-| `vigilo/platforms/colab.py` | Colab monitor | Watches everything Colab-specific: session countdown, GPU assignment, tier detection, storage, Drive status |
-| `vigilo/platforms/kaggle.py` | Kaggle monitor | Watches everything Kaggle-specific: GPU/TPU quotas, session limits, output caps, internet access, file limits |
-| `vigilo/api.py` (updated) | New `/platform` endpoint | Added a new URL that returns platform-specific monitoring data |
+| `bannin/platforms/detector.py` | Platform detection | The "where am I?" check — figures out if Bannin is running on your laptop, inside Google Colab, or inside Kaggle |
+| `bannin/platforms/colab.py` | Colab monitor | Watches everything Colab-specific: session countdown, GPU assignment, tier detection, storage, Drive status |
+| `bannin/platforms/kaggle.py` | Kaggle monitor | Watches everything Kaggle-specific: GPU/TPU quotas, session limits, output caps, internet access, file limits |
+| `bannin/api.py` (updated) | New `/platform` endpoint | Added a new URL that returns platform-specific monitoring data |
 
 ### New API Endpoint
 
@@ -303,33 +303,33 @@ Think of it like this: Phase 1a gave Vigilo eyes to see your machine's health. P
 
 ---
 
-## What Vigilo Now Tracks — The Full Picture
+## What Bannin Now Tracks — The Full Picture
 
 ### How Platform Detection Works
 
-When Vigilo starts, it checks:
+When Bannin starts, it checks:
 1. Is the `google.colab` Python module available? Are Colab environment markers present? → **It's Colab**
 2. Is the `KAGGLE_KERNEL_RUN_TYPE` environment variable set? Is `/kaggle/working` a real folder? → **It's Kaggle**
 3. Neither? → **It's a local machine**
 
-This happens once at startup — zero effort from the user. They just `pip install vigilo` and it figures out the rest.
+This happens once at startup — zero effort from the user. They just `pip install bannin` and it figures out the rest.
 
 ### Google Colab — Every Constraint Monitored
 
-We researched every single limit Google imposes on Colab users. Here's what Vigilo now tracks:
+We researched every single limit Google imposes on Colab users. Here's what Bannin now tracks:
 
 **Session & Time**
 | What We Track | The Rule | Why It Matters |
 |---|---|---|
 | Session countdown | Free: 12h max, Pro: 24h max, Pro+: 24h max | If the timer runs out, everything in memory is destroyed |
 | Idle timeout | Free: 90 min, Pro/Pro+: ~3 hours | If you walk away too long, Colab kills your session |
-| Tier detection | Auto-detected from RAM allocation | Different tiers have different limits — Vigilo adjusts automatically |
+| Tier detection | Auto-detected from RAM allocation | Different tiers have different limits — Bannin adjusts automatically |
 | Background execution | Pro+ only | Only Pro+ can keep running after you close the browser tab |
 
 **GPU & Compute**
 | What We Track | The Rule | Why It Matters |
 |---|---|---|
-| GPU assignment | Colab assigns T4, L4, A100, or nothing | Free users often get no GPU during busy times — Vigilo catches this |
+| GPU assignment | Colab assigns T4, L4, A100, or nothing | Free users often get no GPU during busy times — Bannin catches this |
 | GPU VRAM | T4=15GB, L4=22.5GB, A100=40GB (hard limits) | If VRAM fills up, your code crashes instantly |
 | GPU temperature | Live reading in Celsius | High temps (>85C) cause throttling — your code runs slower |
 | GPU power draw | Live reading in Watts | Tells you how hard the GPU is working |
@@ -477,7 +477,7 @@ All core detection systems work in the real world:
 
 **Why:** Google increased their disk allocation without announcing it. Community sources were outdated.
 
-**How we fixed it:** Updated the expected value to ~110 GB for free tier. More importantly, our code already detects the real disk size at runtime, so even if Google changes it again, Vigilo will show the correct number. The "expected" label is just for reference.
+**How we fixed it:** Updated the expected value to ~110 GB for free tier. More importantly, our code already detects the real disk size at runtime, so even if Google changes it again, Bannin will show the correct number. The "expected" label is just for reference.
 
 **Impact on users:** None — the real number was always shown correctly. Only the reference label was off.
 
@@ -489,7 +489,7 @@ All core detection systems work in the real world:
 
 **Why:** Kaggle runs on a different storage architecture than Colab. The total disk number is the entire shared system, not what's available to your notebook.
 
-**How we fixed it:** Stopped showing total disk as a meaningful number for Kaggle. Instead, Vigilo now focuses on the **20 GB output limit** in `/kaggle/working`, which is the actual constraint users care about. Added a note explaining this.
+**How we fixed it:** Stopped showing total disk as a meaningful number for Kaggle. Instead, Bannin now focuses on the **20 GB output limit** in `/kaggle/working`, which is the actual constraint users care about. Added a note explaining this.
 
 **Impact on users:** Users now see the limits that actually matter (20 GB output, 500 files) instead of a misleading 73 GB number.
 
@@ -501,7 +501,7 @@ All core detection systems work in the real world:
 
 **Why:** `pynvml` is part of the NVIDIA CUDA toolkit. It's only available when a GPU runtime is enabled.
 
-**Impact:** This is expected and already handled gracefully — Vigilo shows "No GPU" and moves on. When users enable a GPU runtime, `pynvml` becomes available through the CUDA drivers and Vigilo will detect the GPU automatically.
+**Impact:** This is expected and already handled gracefully — Bannin shows "No GPU" and moves on. When users enable a GPU runtime, `pynvml` becomes available through the CUDA drivers and Bannin will detect the GPU automatically.
 
 ---
 
@@ -509,7 +509,7 @@ All core detection systems work in the real world:
 
 **What happened:** Both Google (Colab) and Kaggle deliberately don't publish many exact limits.
 
-**How we handled it:** We detect real values at runtime wherever possible (RAM, disk, GPU type) and only use hardcoded values for things that can't be detected (session time limits, quota hours). This means Vigilo stays accurate even when platforms change their limits.
+**How we handled it:** We detect real values at runtime wherever possible (RAM, disk, GPU type) and only use hardcoded values for things that can't be detected (session time limits, quota hours). This means Bannin stays accurate even when platforms change their limits.
 
 ---
 
@@ -517,7 +517,7 @@ All core detection systems work in the real world:
 
 **What happened:** Kaggle does not expose your remaining weekly GPU quota through any API.
 
-**How we handled it:** Vigilo tracks GPU hours burned in the current session and reminds users to check their full quota at kaggle.com/me/account.
+**How we handled it:** Bannin tracks GPU hours burned in the current session and reminds users to check their full quota at kaggle.com/me/account.
 
 ---
 
@@ -559,46 +559,46 @@ Phase 1b adds **platform intelligence** to the agent — it knows where it's run
 
 ### The Key Takeaway
 
-**Phase 1b is verified on real platforms.** The core detection works: Vigilo correctly identifies Colab and Kaggle, reads real system metrics, catches internet restrictions, and detects tier-specific limits. Two data estimates were corrected based on real-world testing (Colab disk and Kaggle filesystem). The architecture of detecting values at runtime instead of hardcoding proved its worth — even when our estimates were off, the real numbers showed up correctly.
+**Phase 1b is verified on real platforms.** The core detection works: Bannin correctly identifies Colab and Kaggle, reads real system metrics, catches internet restrictions, and detects tier-specific limits. Two data estimates were corrected based on real-world testing (Colab disk and Kaggle filesystem). The architecture of detecting values at runtime instead of hardcoding proved its worth — even when our estimates were off, the real numbers showed up correctly.
 
 ---
 
 ## Remote Config System (added after Phase 1b testing)
 
-**Why this was built**: During Phase 1b review, a critical question came up: "What happens when Colab or Kaggle change their limits?" If Google increases Colab's disk from 110 GB to 150 GB, or Kaggle changes their weekly GPU quota from 30 hours to 25 hours, Vigilo would show outdated information until we release a new version.
+**Why this was built**: During Phase 1b review, a critical question came up: "What happens when Colab or Kaggle change their limits?" If Google increases Colab's disk from 110 GB to 150 GB, or Kaggle changes their weekly GPU quota from 30 hours to 25 hours, Bannin would show outdated information until we release a new version.
 
 **The solution**: A three-tier config system that keeps itself up to date:
 
 | Layer | What It Does | When It's Used |
 |---|---|---|
 | Hardcoded defaults (`defaults.json`) | The "last resort" values baked into the package | Always loaded first. Works even offline, even if everything else fails |
-| Local cache (`~/.vigilo/platform_config.json`) | A saved copy of the latest remote config | Used if the cache is less than 24 hours old (fast, no network needed) |
+| Local cache (`~/.bannin/platform_config.json`) | A saved copy of the latest remote config | Used if the cache is less than 24 hours old (fast, no network needed) |
 | Remote fetch (GitHub raw URL) | Fetches the latest config from our GitHub repo | Checked once per day. If it fails (no internet, timeout), we just use what we have |
 
 **How it works in practice**:
-1. User installs Vigilo → hardcoded defaults are correct at install time
+1. User installs Bannin → hardcoded defaults are correct at install time
 2. We discover Colab changed a limit → we update `defaults.json` on GitHub
-3. Next time the user runs Vigilo → it fetches the new values within 24 hours
+3. Next time the user runs Bannin → it fetches the new values within 24 hours
 4. If user is offline (e.g., Kaggle competition mode) → cached or hardcoded values still work
 
 ### Files Created
 
 | File | What It Does |
 |---|---|
-| `vigilo/config/defaults.json` | Central JSON file with ALL platform limits — Colab tiers, GPU specs, Kaggle quotas, storage limits, RAM limits |
-| `vigilo/config/loader.py` | The config engine — loads defaults, checks cache, fetches from GitHub, merges values |
-| `vigilo/config/__init__.py` | Package marker |
+| `bannin/config/defaults.json` | Central JSON file with ALL platform limits — Colab tiers, GPU specs, Kaggle quotas, storage limits, RAM limits |
+| `bannin/config/loader.py` | The config engine — loads defaults, checks cache, fetches from GitHub, merges values |
+| `bannin/config/__init__.py` | Package marker |
 
 ### What Changed in Existing Files
 
 | File | Change | Why |
 |---|---|---|
-| `vigilo/platforms/colab.py` | Tier limits now come from config, not hardcoded | Can be updated remotely |
-| `vigilo/platforms/kaggle.py` | All limits now come from config, not hardcoded | Can be updated remotely |
+| `bannin/platforms/colab.py` | Tier limits now come from config, not hardcoded | Can be updated remotely |
+| `bannin/platforms/kaggle.py` | All limits now come from config, not hardcoded | Can be updated remotely |
 
 ### Key Design Decision
 
-The remote config is **additive only** — it can update numbers (session hours, quota limits, GPU specs) but cannot change the structure of the monitoring code. This means a bad config file can't break Vigilo, it can only give slightly wrong numbers at worst. And if even that fails, the hardcoded defaults kick in.
+The remote config is **additive only** — it can update numbers (session hours, quota limits, GPU specs) but cannot change the structure of the monitoring code. This means a bad config file can't break Bannin, it can only give slightly wrong numbers at worst. And if even that fails, the hardcoded defaults kick in.
 
 ### Test Results
 
@@ -617,20 +617,20 @@ The remote config is **additive only** — it can update numbers (session hours,
 # Phase 1c — LLM Health Monitoring & Token Tracking
 
 **Date**: 18 February 2026
-**Goal**: Make Vigilo aware of LLM API usage — track how "healthy" each conversation is, how close it is to hitting the context window limit, whether responses are getting slower, and what everything costs.
+**Goal**: Make Bannin aware of LLM API usage — track how "healthy" each conversation is, how close it is to hitting the context window limit, whether responses are getting slower, and what everything costs.
 **Status**: COMPLETE
 
 ---
 
 ## What Was Built
 
-Vigilo can now sit between your code and any LLM API (OpenAI, Anthropic, Google, and many others) and quietly monitor everything that happens. It doesn't change how the API works — it just watches and reports.
+Bannin can now sit between your code and any LLM API (OpenAI, Anthropic, Google, and many others) and quietly monitor everything that happens. It doesn't change how the API works — it just watches and reports.
 
 Think of it like a health monitor for your AI conversations. The same way Phase 1a watches your CPU and RAM, Phase 1c watches your LLM context windows and response times.
 
 ### The Core Idea
 
-When you use an LLM API (like GPT-4o or Claude), every call sends your conversation history and gets a response back. The API tells you exactly how many "tokens" (roughly words) were used. Vigilo captures this data to answer questions like:
+When you use an LLM API (like GPT-4o or Claude), every call sends your conversation history and gets a response back. The API tells you exactly how many "tokens" (roughly words) were used. Bannin captures this data to answer questions like:
 
 - **How full is this conversation?** "78% of context window used — about 3 messages left before quality drops"
 - **Are responses getting slower?** "Latency increased from 1.4s to 4.0s — the API may be overloaded"
@@ -650,18 +650,18 @@ Cost tracking exists (it's free to calculate), but the headline features are con
 
 | File | What It Does | Plain English |
 |---|---|---|
-| `vigilo/llm/__init__.py` | Package exports | Makes `vigilo.wrap()` and `vigilo.track()` available |
-| `vigilo/llm/pricing.py` | Model reference data | Knows the pricing, context window size, and provider for 30+ LLM models. Loads from remote config so it stays up to date |
-| `vigilo/llm/tracker.py` | The brain — usage tracking & predictions | Stores every API call, calculates summaries, predicts context exhaustion, detects latency degradation |
-| `vigilo/llm/wrapper.py` | The interceptor — wraps LLM clients | Sits between your code and the API. Captures token counts and timing without changing how the API works |
+| `bannin/llm/__init__.py` | Package exports | Makes `bannin.wrap()` and `bannin.track()` available |
+| `bannin/llm/pricing.py` | Model reference data | Knows the pricing, context window size, and provider for 30+ LLM models. Loads from remote config so it stays up to date |
+| `bannin/llm/tracker.py` | The brain — usage tracking & predictions | Stores every API call, calculates summaries, predicts context exhaustion, detects latency degradation |
+| `bannin/llm/wrapper.py` | The interceptor — wraps LLM clients | Sits between your code and the API. Captures token counts and timing without changing how the API works |
 
 ### Updated Files
 
 | File | Change | Why |
 |---|---|---|
-| `vigilo/api.py` | Added 4 new endpoints (`/llm/usage`, `/llm/calls`, `/llm/context`, `/llm/latency`) | So the phone app and MCP server can read LLM health data |
-| `vigilo/__init__.py` | Exports `vigilo.wrap()` and `vigilo.track()` | So developers can use them directly |
-| `vigilo/config/defaults.json` | Added LLM pricing data for 30+ models | Prices and context windows for OpenAI, Anthropic, Google, xAI, Mistral, Meta, Cohere — all remotely updateable |
+| `bannin/api.py` | Added 4 new endpoints (`/llm/usage`, `/llm/calls`, `/llm/context`, `/llm/latency`) | So the phone app and MCP server can read LLM health data |
+| `bannin/__init__.py` | Exports `bannin.wrap()` and `bannin.track()` | So developers can use them directly |
+| `bannin/config/defaults.json` | Added LLM pricing data for 30+ models | Prices and context windows for OpenAI, Anthropic, Google, xAI, Mistral, Meta, Cohere — all remotely updateable |
 
 ### New API Endpoints
 
@@ -676,12 +676,12 @@ Cost tracking exists (it's free to calculate), but the headline features are con
 
 **Pattern 1 — Wrap your LLM client:**
 ```python
-import vigilo
+import bannin
 from openai import OpenAI
 
-client = vigilo.wrap(OpenAI())
+client = bannin.wrap(OpenAI())
 
-# Use the client exactly as before — Vigilo tracks everything silently
+# Use the client exactly as before — Bannin tracks everything silently
 response = client.chat.completions.create(model="gpt-4o", messages=[...])
 
 # Check conversation health anytime at localhost:8420/llm/context?model=gpt-4o&tokens=95000
@@ -689,7 +689,7 @@ response = client.chat.completions.create(model="gpt-4o", messages=[...])
 
 **Pattern 2 — Named tracking scopes:**
 ```python
-with vigilo.track("my-experiment"):
+with bannin.track("my-experiment"):
     response = client.chat.completions.create(model="gpt-4o", messages=[...])
     # This call is tagged with "my-experiment" for grouped analysis
 ```
@@ -697,13 +697,13 @@ with vigilo.track("my-experiment"):
 **Works with all major providers:**
 ```python
 # OpenAI (GPT-4o, GPT-4, o1, o3-mini, etc.)
-client = vigilo.wrap(OpenAI())
+client = bannin.wrap(OpenAI())
 
 # Anthropic (Claude Sonnet, Opus, Haiku)
-client = vigilo.wrap(Anthropic())
+client = bannin.wrap(Anthropic())
 
 # Google (Gemini 2.0 Flash, 1.5 Pro, etc.)
-model = vigilo.wrap(genai.GenerativeModel("gemini-2.0-flash"))
+model = bannin.wrap(genai.GenerativeModel("gemini-2.0-flash"))
 
 # Also works automatically with: Azure OpenAI, Groq, Together AI,
 # Fireworks, xAI Grok, and any OpenAI-compatible provider
@@ -727,7 +727,7 @@ All pricing and context window data lives in the remote config system, so it can
 
 ### Smart Model Matching
 
-API responses often include model names with date suffixes (e.g., `gpt-4o-2024-08-06` instead of just `gpt-4o`). Vigilo handles this with fuzzy matching — it tries exact match first, then prefix match, then partial match. This means if OpenAI returns a new variant like `gpt-4o-2026-01-15`, Vigilo still recognises it as a GPT-4o model and prices it correctly.
+API responses often include model names with date suffixes (e.g., `gpt-4o-2024-08-06` instead of just `gpt-4o`). Bannin handles this with fuzzy matching — it tries exact match first, then prefix match, then partial match. This means if OpenAI returns a new variant like `gpt-4o-2026-01-15`, Bannin still recognises it as a GPT-4o model and prices it correctly.
 
 ---
 
@@ -761,14 +761,14 @@ API responses often include model names with date suffixes (e.g., `gpt-4o-2024-0
 | Wrapping a mock OpenAI client | PASS |
 | Same object returned (no copy, no side effects) | PASS |
 | API call intercepted, tokens captured automatically | PASS |
-| `vigilo.track("name")` scope applied to calls | PASS |
+| `bannin.track("name")` scope applied to calls | PASS |
 | Double-wrapping protection (wrap same client twice = safe) | PASS |
 
 ### Test 4: Full Integration (Server + Tracker in Same Process)
 
 | Test | Result |
 |---|---|
-| `vigilo.watch()` starts server, tracker records calls, API returns data | PASS |
+| `bannin.watch()` starts server, tracker records calls, API returns data | PASS |
 | `GET /llm/usage` — returns full session summary with 8 calls | PASS |
 | `GET /llm/calls?limit=3` — returns 3 most recent calls, newest first | PASS |
 | `GET /llm/context?model=gpt-4o&tokens=95000` — returns 74.2% used, health note | PASS |
@@ -784,9 +784,9 @@ API responses often include model names with date suffixes (e.g., `gpt-4o-2024-0
 
 **What happened**: When simulating API calls in a separate terminal and then checking the API, the `/llm/usage` endpoint showed zero calls.
 
-**Why**: The tracker stores data in memory within the running process. A separate Python script has its own tracker. This is correct behavior — in real use, `vigilo.wrap()` and the API server share the same process (via `vigilo.watch()`).
+**Why**: The tracker stores data in memory within the running process. A separate Python script has its own tracker. This is correct behavior — in real use, `bannin.wrap()` and the API server share the same process (via `bannin.watch()`).
 
-**Impact on users**: None. When users use `vigilo.wrap(client)` inside their code and start the agent with `vigilo.watch()`, everything is in the same process and works correctly.
+**Impact on users**: None. When users use `bannin.wrap(client)` inside their code and start the agent with `bannin.watch()`, everything is in the same process and works correctly.
 
 ---
 
@@ -800,11 +800,11 @@ API responses often include model names with date suffixes (e.g., `gpt-4o-2024-0
 
 **How to verify**: Any developer with an OpenAI/Anthropic API key can run:
 ```python
-import vigilo
+import bannin
 from openai import OpenAI
 
-with vigilo.watch():
-    client = vigilo.wrap(OpenAI())
+with bannin.watch():
+    client = bannin.wrap(OpenAI())
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": "Say hello"}]
@@ -830,7 +830,7 @@ with vigilo.watch():
 
 **What happened**: LLM providers change pricing regularly. Hardcoded prices would go stale.
 
-**How we handled it**: All pricing data lives in `defaults.json` — the same remote config system built after Phase 1b. When a provider changes prices, we update the config on GitHub and every Vigilo installation picks up the new prices within 24 hours. No package release needed.
+**How we handled it**: All pricing data lives in `defaults.json` — the same remote config system built after Phase 1b. When a provider changes prices, we update the config on GitHub and every Bannin installation picks up the new prices within 24 hours. No package release needed.
 
 ---
 
@@ -845,7 +845,7 @@ We chose **client wrapper** because:
 - No network overhead (no extra hop through a proxy)
 - No port conflicts (doesn't need another localhost port)
 - Works in notebooks (Colab/Kaggle have network restrictions)
-- Simpler for users (`vigilo.wrap(client)` is one line)
+- Simpler for users (`bannin.wrap(client)` is one line)
 - The client still works exactly as before — all methods, all features, all error handling
 
 The downside is that each provider needs its own wrapping logic, but the common pattern (`intercept create → time it → extract usage → record`) is the same across all providers.
@@ -879,25 +879,25 @@ The foundation is in place. The wrapper is already in the right position — bet
 
 ### What we have
 
-Phase 1c adds **LLM awareness** to Vigilo. It can now monitor your AI conversations the same way Phase 1a monitors your machine and Phase 1b monitors your cloud notebooks.
+Phase 1c adds **LLM awareness** to Bannin. It can now monitor your AI conversations the same way Phase 1a monitors your machine and Phase 1b monitors your cloud notebooks.
 
 | MVP Feature | Status | Notes |
 |---|---|---|
-| `vigilo.wrap()` for OpenAI clients | DONE | Tested with mock client |
-| `vigilo.wrap()` for Anthropic clients | DONE | Tested with mock client |
-| `vigilo.wrap()` for Google Gemini clients | DONE | Tested with mock client |
+| `bannin.wrap()` for OpenAI clients | DONE | Tested with mock client |
+| `bannin.wrap()` for Anthropic clients | DONE | Tested with mock client |
+| `bannin.wrap()` for Google Gemini clients | DONE | Tested with mock client |
 | OpenAI-compatible providers (Groq, Together, Fireworks, xAI, Azure) | DONE | Auto-detected from base URL |
 | Token counting per call | DONE | Input, output, cached tokens all tracked |
 | Cost calculation per call | DONE | 30+ models across 7 providers |
 | Context window exhaustion prediction | DONE | "74.2% used, ~1 message remaining" |
 | Latency degradation detection | DONE | "Latency increasing: 1.4s → 4.0s" |
-| `vigilo.track("name")` scoping | DONE | Tag calls with experiment/conversation names |
+| `bannin.track("name")` scoping | DONE | Tag calls with experiment/conversation names |
 | `/llm/usage` API endpoint | DONE | Full session summary |
 | `/llm/calls` API endpoint | DONE | Recent call history |
 | `/llm/context` API endpoint | DONE | Per-model context prediction |
 | `/llm/latency` API endpoint | DONE | Latency trend analysis |
 | Remotely updateable pricing | DONE | Via existing config system |
-| Double-wrap protection | DONE | Safe to call `vigilo.wrap()` multiple times |
+| Double-wrap protection | DONE | Safe to call `bannin.wrap()` multiple times |
 
 ### What we DON'T have yet
 
@@ -912,7 +912,7 @@ Phase 1c adds **LLM awareness** to Vigilo. It can now monitor your AI conversati
 
 ### The Key Takeaway
 
-**Phase 1c gives Vigilo its LLM eyes.** It can now watch any major LLM API, track how healthy each conversation is, detect when things are degrading, and report it all through the same API that the phone app will consume. Combined with Phase 1a (machine health) and Phase 1b (cloud notebook health), Vigilo now monitors the three main things its target users care about: their machine, their cloud environment, and their AI tools.
+**Phase 1c gives Bannin its LLM eyes.** It can now watch any major LLM API, track how healthy each conversation is, detect when things are degrading, and report it all through the same API that the phone app will consume. Combined with Phase 1a (machine health) and Phase 1b (cloud notebook health), Bannin now monitors the three main things its target users care about: their machine, their cloud environment, and their AI tools.
 
 The critical foundation for the "conversation transfer" feature is in place — the wrapper sits in exactly the right position to eventually capture, summarize, and transfer conversation context.
 
@@ -935,9 +935,9 @@ The critical foundation for the "conversation transfer" feature is in place — 
 
 ### Update 2: Audience Redefinition
 
-**What changed**: Updated CLAUDE.md to clarify that Vigilo is **not a developer tool**. It is a tool for everyone in the digital era — anyone who uses AI or compute.
+**What changed**: Updated CLAUDE.md to clarify that Bannin is **not a developer tool**. It is a tool for everyone in the digital era — anyone who uses AI or compute.
 
-**Why it matters**: The Phase 1c API wrapper (`vigilo.wrap()`) is one entry point, but it's the developer entry point. The larger audience — students, writers, researchers, creators, business professionals — will interact through the browser extension (Phase 6) and phone app (Phase 5). Vigilo's positioning must reflect that the browser extension path (tracking ChatGPT, Claude, Gemini for everyday users) is just as important, arguably more so, than the Python API wrapper.
+**Why it matters**: The Phase 1c API wrapper (`bannin.wrap()`) is one entry point, but it's the developer entry point. The larger audience — students, writers, researchers, creators, business professionals — will interact through the browser extension (Phase 6) and phone app (Phase 5). Bannin's positioning must reflect that the browser extension path (tracking ChatGPT, Claude, Gemini for everyday users) is just as important, arguably more so, than the Python API wrapper.
 
 **The audience**: Students, writers, researchers, creators, business professionals, hobbyists, and developers — anyone who interacts with AI or runs compute.
 
@@ -961,7 +961,7 @@ All GPU fields that our code reads (`pynvml` name, memory, utilization, temperat
 
 ### LLM Wrapper Interception Verified (19 February 2026)
 
-Tested `vigilo.wrap()` with a real Google Gemini API call. The wrapper successfully intercepted the call (proven by the traceback showing `wrapper.py line 211, in wrapped_generate`). The API call itself was rejected by Google's free tier quota limit (error 429), so no token data flowed through. The interception mechanism is verified — full end-to-end token tracking will be confirmed when a working API key is available.
+Tested `bannin.wrap()` with a real Google Gemini API call. The wrapper successfully intercepted the call (proven by the traceback showing `wrapper.py line 211, in wrapped_generate`). The API call itself was rejected by Google's free tier quota limit (error 429), so no token data flowed through. The interception mechanism is verified — full end-to-end token tracking will be confirmed when a working API key is available.
 
 ### Live Demo Results (product owner tested)
 
@@ -983,14 +983,14 @@ All 4 LLM endpoints tested by the product owner in a browser:
 # Phase 2 — Intelligence Engine
 
 **Date**: 19 February 2026
-**Goal**: Make Vigilo smart. Move from reporting raw numbers (L0 Observe) to understanding what those numbers mean and raising alarms when something is wrong (L1 Alert). This is the phase where Vigilo becomes predictive instead of just descriptive.
+**Goal**: Make Bannin smart. Move from reporting raw numbers (L0 Observe) to understanding what those numbers mean and raising alarms when something is wrong (L1 Alert). This is the phase where Bannin becomes predictive instead of just descriptive.
 **Status**: COMPLETE
 
 ---
 
 ## What Was Built
 
-Phase 2 is the "brain" of Vigilo. Until now, the agent was like a thermometer — it could tell you the temperature, but it couldn't tell you "you're about to overheat." Phase 2 adds four intelligence modules that watch trends, detect patterns, predict failures, and fire alerts.
+Phase 2 is the "brain" of Bannin. Until now, the agent was like a thermometer — it could tell you the temperature, but it couldn't tell you "you're about to overheat." Phase 2 adds four intelligence modules that watch trends, detect patterns, predict failures, and fire alerts.
 
 Think of it like upgrading from a car dashboard that shows your speed to one that also says "at this rate, you'll run out of fuel in 12 minutes."
 
@@ -998,7 +998,7 @@ Think of it like upgrading from a car dashboard that shows your speed to one tha
 
 | Module | What It Does | Plain English |
 |---|---|---|
-| **Metric History** (`history.py`) | Stores 30 minutes of system snapshots in a ring buffer | Gives Vigilo a memory — instead of only seeing "right now", it can look back and spot trends |
+| **Metric History** (`history.py`) | Stores 30 minutes of system snapshots in a ring buffer | Gives Bannin a memory — instead of only seeing "right now", it can look back and spot trends |
 | **OOM Predictor** (`oom.py`) | Linear regression on memory usage trends | "RAM is growing at 0.6%/min. At this rate, you'll be out of memory in 8 minutes." |
 | **Progress Tracker** (`progress.py`) | Intercepts tqdm bars and stdout patterns | "Your training is at Epoch 3/10 — ETA 22 minutes." |
 | **Threshold Engine** (`alerts.py`) | Evaluates configurable rules against live metrics | "RAM hit 95% — CRITICAL. Colab session expires in 5 minutes — WARNING." |
@@ -1007,23 +1007,23 @@ Think of it like upgrading from a car dashboard that shows your speed to one tha
 
 | File | What It Does | Plain English |
 |---|---|---|
-| `vigilo/intelligence/__init__.py` | Package exports | Single import point for all intelligence modules |
-| `vigilo/intelligence/history.py` | Ring buffer with background collection thread | Collects a snapshot every 5 seconds, stores up to 360 readings (30 min), provides time-series data for predictions |
-| `vigilo/intelligence/oom.py` | OOM prediction via linear regression | Fits a line to memory data over time, projects when it hits 100%, assigns severity (critical/warning/info) |
-| `vigilo/intelligence/progress.py` | tqdm interception + stdout pattern matching | Monkey-patches tqdm to report progress; scans stdout for "Epoch 3/10" style patterns; calculates ETA |
-| `vigilo/intelligence/alerts.py` | Rule-based threshold engine with cooldowns | Evaluates 17+ alert rules every 5 seconds; supports comparisons, conditions, platform filtering, deduplication |
+| `bannin/intelligence/__init__.py` | Package exports | Single import point for all intelligence modules |
+| `bannin/intelligence/history.py` | Ring buffer with background collection thread | Collects a snapshot every 5 seconds, stores up to 360 readings (30 min), provides time-series data for predictions |
+| `bannin/intelligence/oom.py` | OOM prediction via linear regression | Fits a line to memory data over time, projects when it hits 100%, assigns severity (critical/warning/info) |
+| `bannin/intelligence/progress.py` | tqdm interception + stdout pattern matching | Monkey-patches tqdm to report progress; scans stdout for "Epoch 3/10" style patterns; calculates ETA |
+| `bannin/intelligence/alerts.py` | Rule-based threshold engine with cooldowns | Evaluates 17+ alert rules every 5 seconds; supports comparisons, conditions, platform filtering, deduplication |
 
 ### Updated Files
 
 | File | Change | Why |
 |---|---|---|
-| `vigilo/__init__.py` | `watch()` now starts MetricHistory and ProgressTracker | Intelligence modules activate automatically when monitoring begins |
-| `vigilo/api.py` | 7 new endpoints + startup hook for MetricHistory | Exposes all intelligence data through the REST API |
-| `vigilo/config/defaults.json` | Added `intelligence` section (~270 lines) | All thresholds, patterns, and alert rules are config-driven and remotely updateable |
-| `vigilo/cli.py` | Minor refactoring to use config-based settings | Consistency with config-first approach |
-| `vigilo/llm/tracker.py` | Simplified to use config-based pricing | Removed duplication, single source of truth |
-| `vigilo/platforms/colab.py` | Simplified to use config-based limits | Config-driven values instead of hardcoded |
-| `vigilo/platforms/kaggle.py` | Simplified to use config-based limits | Config-driven values instead of hardcoded |
+| `bannin/__init__.py` | `watch()` now starts MetricHistory and ProgressTracker | Intelligence modules activate automatically when monitoring begins |
+| `bannin/api.py` | 7 new endpoints + startup hook for MetricHistory | Exposes all intelligence data through the REST API |
+| `bannin/config/defaults.json` | Added `intelligence` section (~270 lines) | All thresholds, patterns, and alert rules are config-driven and remotely updateable |
+| `bannin/cli.py` | Minor refactoring to use config-based settings | Consistency with config-first approach |
+| `bannin/llm/tracker.py` | Simplified to use config-based pricing | Removed duplication, single source of truth |
+| `bannin/platforms/colab.py` | Simplified to use config-based limits | Config-driven values instead of hardcoded |
+| `bannin/platforms/kaggle.py` | Simplified to use config-based limits | Config-driven values instead of hardcoded |
 
 ### New API Endpoints (7 added, total now 20)
 
@@ -1041,9 +1041,9 @@ Think of it like upgrading from a car dashboard that shows your speed to one tha
 
 ## How Each Module Works
 
-### 1. Metric History — Vigilo's Memory
+### 1. Metric History — Bannin's Memory
 
-**Problem it solves**: Before Phase 2, Vigilo could only tell you what's happening *right now*. "RAM is 85%." But is that going up or down? Has it been 85% for an hour, or did it jump from 50% in the last 2 minutes? Without history, you can't predict anything.
+**Problem it solves**: Before Phase 2, Bannin could only tell you what's happening *right now*. "RAM is 85%." But is that going up or down? Has it been 85% for an hour, or did it jump from 50% in the last 2 minutes? Without history, you can't predict anything.
 
 **How it works**:
 - A background thread wakes up every 5 seconds
@@ -1060,7 +1060,7 @@ Think of it like upgrading from a car dashboard that shows your speed to one tha
 
 ### 2. OOM Predictor — "You'll Run Out of Memory In..."
 
-**Problem it solves**: Running out of memory is the #1 silent killer for training runs, notebooks, and long computations. By the time you see the error, your work is already lost. Vigilo now predicts it before it happens.
+**Problem it solves**: Running out of memory is the #1 silent killer for training runs, notebooks, and long computations. By the time you see the error, your work is already lost. Bannin now predicts it before it happens.
 
 **How it works**:
 1. Pulls the last 30 minutes of memory readings from the ring buffer
@@ -1085,10 +1085,10 @@ Think of it like upgrading from a car dashboard that shows your speed to one tha
 
 ### 3. Progress Tracker — "Epoch 3/10, ETA 22 Minutes"
 
-**Problem it solves**: When you start a training run and walk away, you want to know "how far along is it?" and "when will it finish?" Vigilo detects running tasks from two sources and calculates ETAs.
+**Problem it solves**: When you start a training run and walk away, you want to know "how far along is it?" and "when will it finish?" Bannin detects running tasks from two sources and calculates ETAs.
 
 **Source 1 — tqdm interception**:
-- When `vigilo.watch()` is active, Vigilo monkey-patches tqdm's `__init__`, `update`, and `close` methods
+- When `bannin.watch()` is active, Bannin monkey-patches tqdm's `__init__`, `update`, and `close` methods
 - Every tqdm progress bar automatically becomes a tracked task
 - Current/total/percent captured on every update
 - Original tqdm behavior is completely preserved — the progress bar still works normally
@@ -1110,7 +1110,7 @@ Think of it like upgrading from a car dashboard that shows your speed to one tha
 
 ### 4. Threshold Engine — "RAM CRITICAL: 95% Used"
 
-**Problem it solves**: Raw numbers are only useful if someone is watching them. When Vigilo spots a number that's too high, too low, or trending dangerously, it fires an alert.
+**Problem it solves**: Raw numbers are only useful if someone is watching them. When Bannin spots a number that's too high, too low, or trending dangerously, it fires an alert.
 
 **How it works**:
 - Loads alert rules from `defaults.json` (17+ rules preconfigured)
@@ -1179,18 +1179,18 @@ A fixed-size `collections.deque` instead of SQLite or a file:
 
 ### Why Monkey-Patching tqdm (Not a Custom Progress Bar)
 
-Vigilo patches tqdm rather than asking users to use a Vigilo-specific progress bar:
+Bannin patches tqdm rather than asking users to use a Bannin-specific progress bar:
 - Users don't have to change their code
 - Works with all existing training scripts that already use tqdm
 - Original tqdm behavior is preserved — bars still render correctly
-- Automatically hooks when `vigilo.watch()` starts, unhooks when it ends
+- Automatically hooks when `bannin.watch()` starts, unhooks when it ends
 
 ---
 
 ## Integration: How It All Fits Together
 
 ```
-vigilo.watch() starts
+bannin.watch() starts
   ├── MetricHistory.start()     → background thread begins collecting every 5s
   │     └── each cycle:
   │           ├── snapshot → ring buffer (360 readings)
@@ -1215,20 +1215,20 @@ vigilo.watch() starts
 
 ## MCP Server Verification
 
-The Vigilo MCP server (`vigilo-mcp`) was tested live during Phase 2 development. Claude Code successfully queried:
+The Bannin MCP server (`bannin-mcp`) was tested live during Phase 2 development. Claude Code successfully queried:
 - `get_system_metrics` — returned live CPU (96.4%), RAM (87.1%), disk, network
 - `get_running_processes` — returned top processes by resource usage
 - `predict_oom` — returned OOM predictions from the intelligence engine
 - `get_training_status` — returned tracked task status
 - `get_active_alerts` — returned currently firing alerts
 
-This confirms the MCP integration works end-to-end: Claude Code calls the MCP server → MCP server calls the Vigilo API → intelligence engine returns predictions and alerts.
+This confirms the MCP integration works end-to-end: Claude Code calls the MCP server → MCP server calls the Bannin API → intelligence engine returns predictions and alerts.
 
 ---
 
 ## Anthropic API Key — End-to-End LLM Wrapper Verified (19 February 2026)
 
-The LLM wrapper gap from Phase 1c is now **closed**. A real Anthropic API key ($5 credit) was used to make 5 live API calls through `vigilo.wrap()`. The dashboard screenshot confirms:
+The LLM wrapper gap from Phase 1c is now **closed**. A real Anthropic API key ($5 credit) was used to make 5 live API calls through `bannin.wrap()`. The dashboard screenshot confirms:
 
 | Metric | Value | Verdict |
 |---|---|---|
@@ -1241,7 +1241,7 @@ The LLM wrapper gap from Phase 1c is now **closed**. A real Anthropic API key ($
 
 **One minor issue noted**: The per-provider breakdown shows "0 tokens" for Anthropic while the total shows 280. This is a token counting display bug in the provider summary — the per-call tracking works correctly. To be investigated.
 
-**What this proves**: The full pipeline works — `vigilo.wrap(Anthropic())` → real API call → token extraction → cost calculation → latency measurement → dashboard display. This was the last unverified gap in the LLM monitoring system.
+**What this proves**: The full pipeline works — `bannin.wrap(Anthropic())` → real API call → token extraction → cost calculation → latency measurement → dashboard display. This was the last unverified gap in the LLM monitoring system.
 
 ---
 
@@ -1265,7 +1265,7 @@ The LLM wrapper gap from Phase 1c is now **closed**. A real Anthropic API key ($
 
 **Problem**: Monkey-patching tqdm could break if different versions of tqdm have different internal structures.
 
-**Solution**: The patch only touches three public methods (`__init__`, `update`, `close`) and uses `getattr` with defaults for all internal reads. If tqdm changes its internals, the worst that happens is Vigilo doesn't track progress — tqdm itself still works fine. And when `vigilo.watch()` exits, all patches are cleaned up.
+**Solution**: The patch only touches three public methods (`__init__`, `update`, `close`) and uses `getattr` with defaults for all internal reads. If tqdm changes its internals, the worst that happens is Bannin doesn't track progress — tqdm itself still works fine. And when `bannin.watch()` exits, all patches are cleaned up.
 
 ### Challenge 4: No GPU to Test Alerts (KNOWN LIMITATION)
 
@@ -1298,13 +1298,13 @@ The LLM wrapper gap from Phase 1c is now **closed**. A real Anthropic API key ($
 
 ### What we have
 
-Phase 2 transforms Vigilo from a reporter to a predictor. It now understands trends, detects patterns, predicts failures, and raises alarms.
+Phase 2 transforms Bannin from a reporter to a predictor. It now understands trends, detects patterns, predicts failures, and raises alarms.
 
 | MVP Feature | Status | Notes |
 |---|---|---|
 | Metric history (30 min ring buffer, 5s intervals) | DONE | Background thread, thread-safe, auto-starts |
 | OOM prediction (RAM + per-GPU) | DONE | Linear regression, confidence scoring, severity levels |
-| Progress tracking (tqdm interception) | DONE | Auto-hooks during `vigilo.watch()` |
+| Progress tracking (tqdm interception) | DONE | Auto-hooks during `bannin.watch()` |
 | Progress tracking (stdout patterns) | DONE | Epoch, Step, Batch, percent, generic counter |
 | ETA calculation | DONE | Rate-based projection with human-readable output |
 | Stall detection | DONE | 5-minute timeout (configurable) |
@@ -1328,7 +1328,7 @@ Phase 2 transforms Vigilo from a reporter to a predictor. It now understands tre
 
 ### The Key Takeaway
 
-**Phase 2 gives Vigilo intelligence.** It can now predict when your machine will run out of memory, track how far along your training is, estimate when it will finish, and raise alarms when something needs attention. Combined with Phases 1a-1c, Vigilo now monitors your machine, your cloud notebooks, your LLM conversations, AND understands when things are going wrong — all through a single API that any dashboard or phone app can consume.
+**Phase 2 gives Bannin intelligence.** It can now predict when your machine will run out of memory, track how far along your training is, estimate when it will finish, and raise alarms when something needs attention. Combined with Phases 1a-1c, Bannin now monitors your machine, your cloud notebooks, your LLM conversations, AND understands when things are going wrong — all through a single API that any dashboard or phone app can consume.
 
 The intelligence engine is the foundation for everything that comes next: phone notifications need alerts to push, action buttons need predictions to trigger, and the conversation health feature needs threshold rules to decide when to recommend "start a new chat."
 
@@ -1357,7 +1357,7 @@ These companies have a unique problem that no current tool solves well:
 - They need to **track and report costs per client** for billing
 - They need **team-wide visibility** across all projects
 - They can't justify enterprise pricing ($500+/month) but spreadsheets break at scale
-- Their engineers are the exact Vigilo persona — they use Claude Code, Colab, multiple LLM APIs daily
+- Their engineers are the exact Bannin persona — they use Claude Code, Colab, multiple LLM APIs daily
 
 ### Reference Companies (researched 19 Feb 2026)
 
@@ -1381,12 +1381,12 @@ Two companies were studied to understand the market:
 - Notable clients: Paraform, 88 Rising, Soma Capital, Prosights (YC W24), Microsoft
 - Engineers recruited from Canva, Instagram, Y Combinator startups
 
-### Why These Companies Would Use Vigilo
+### Why These Companies Would Use Bannin
 
-| Pain Point | Current Solution | Vigilo Solution |
+| Pain Point | Current Solution | Bannin Solution |
 |---|---|---|
 | Multi-provider LLM cost tracking across projects | Manually check 3+ provider dashboards, combine in spreadsheets | One dashboard: cost by client, by provider, by engineer |
-| "How much did our AI usage cost this month?" from clients | 2+ hours pulling data per client per month | `vigilo.track("client-name")` → auto-generated usage report |
+| "How much did our AI usage cost this month?" from clients | 2+ hours pulling data per client per month | `bannin.track("client-name")` → auto-generated usage report |
 | Engineering lead wants team utilization view | Ask each engineer individually | Team activity feed: who's running what, aggregate cost |
 | Engineer hits OOM during client demo | Finds out when the demo crashes | Alert 10 minutes before |
 | Forward-deployed engineer on client infrastructure | No visibility into what they're doing | Per-engineer tracking regardless of whose API keys are used |
@@ -1401,7 +1401,7 @@ Two companies were studied to understand the market:
 | W&B | Per-user pricing | ML experiment tracking, not LLM API cost management |
 | Manual spreadsheets | Free | Works at 3 clients, breaks at 75 |
 
-Vigilo's position: **unified LLM cost tracking + system monitoring + notebook awareness + phone alerts** at a price point these companies can justify.
+Bannin's position: **unified LLM cost tracking + system monitoring + notebook awareness + phone alerts** at a price point these companies can justify.
 
 ### Features Required (not yet built — Phase 3+)
 
@@ -1415,7 +1415,7 @@ Vigilo's position: **unified LLM cost tracking + system monitoring + notebook aw
 | Self-hosted option | Healthcare/insurance clients (ThinkingCode) need data sovereignty | Relay as deployable package |
 | Webhook/Slack alerts | Teams this size live in Slack, not individual phone apps | Relay + integrations |
 | Audit trail | "Which engineer ran 50K tokens on Tuesday?" for cost allocation | Relay + logging |
-| API access to usage data | Integrate Vigilo data into client dashboards | Relay API |
+| API access to usage data | Integrate Bannin data into client dashboards | Relay API |
 
 ### Proposed Pricing Model
 
@@ -1444,16 +1444,16 @@ Enterprise pricing is meaningless without users. The real path:
 
 ### Adoption Funnel
 
-1. One engineer discovers Vigilo through Claude Code MCP or `pip install vigilo`
+1. One engineer discovers Bannin through Claude Code MCP or `pip install bannin`
 2. Uses it personally (free tier) — loves the LLM tracking and context window prediction
 3. Realizes "I could track costs per client with this"
 4. Brings it to their team lead: "This replaces our manual cost reporting"
 5. Team signs up → Studio tier
-6. Vigilo becomes part of the company's standard engineering toolkit
+6. Bannin becomes part of the company's standard engineering toolkit
 
 ### Key Insight
 
-This isn't a pivot from the individual user. It's the natural upsell path. The personal agent IS the enterprise product — it just needs a team layer on top. The `vigilo.track("client-name")` API already exists. Project-level cost rollups are one aggregation query away from what's already being tracked.
+This isn't a pivot from the individual user. It's the natural upsell path. The personal agent IS the enterprise product — it just needs a team layer on top. The `bannin.track("client-name")` API already exists. Project-level cost rollups are one aggregation query away from what's already being tracked.
 
 ### Dependencies
 

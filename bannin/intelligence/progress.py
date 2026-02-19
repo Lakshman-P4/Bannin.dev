@@ -1,7 +1,7 @@
 """Progress detection — intercepts tqdm bars and stdout patterns.
 
 Detects long-running task progress from two sources:
-1. tqdm progress bars (monkey-patched when inside vigilo.watch())
+1. tqdm progress bars (monkey-patched when inside bannin.watch())
 2. stdout text patterns like "Epoch 3/10" or "Step 500/2000"
 
 Each detected progress source becomes a tracked "task" with current/total/percent.
@@ -52,7 +52,7 @@ class ProgressTracker:
     def _load_patterns(self) -> list[dict]:
         """Load stdout regex patterns from config."""
         try:
-            from vigilo.config.loader import get_config
+            from bannin.config.loader import get_config
             cfg = get_config().get("intelligence", {}).get("progress", {})
             return cfg.get("stdout_patterns", [])
         except Exception:
@@ -64,7 +64,7 @@ class ProgressTracker:
 
     def _load_stall_timeout(self) -> int:
         try:
-            from vigilo.config.loader import get_config
+            from bannin.config.loader import get_config
             cfg = get_config().get("intelligence", {}).get("progress", {})
             return cfg.get("stall_timeout_seconds", 300)
         except Exception:
@@ -101,7 +101,7 @@ class ProgressTracker:
             task_id = str(uuid.uuid4())[:8]
             desc = getattr(self_tqdm, "desc", None) or "tqdm progress"
             total = getattr(self_tqdm, "total", None)
-            self_tqdm._vigilo_task_id = task_id
+            self_tqdm._bannin_task_id = task_id
             tracker._register_task(
                 task_id=task_id,
                 name=str(desc),
@@ -111,14 +111,14 @@ class ProgressTracker:
 
         def patched_update(self_tqdm, n=1):
             original_update(self_tqdm, n)
-            task_id = getattr(self_tqdm, "_vigilo_task_id", None)
+            task_id = getattr(self_tqdm, "_bannin_task_id", None)
             if task_id:
                 current = getattr(self_tqdm, "n", 0)
                 total = getattr(self_tqdm, "total", None)
                 tracker._update_task(task_id, current=current, total=total)
 
         def patched_close(self_tqdm):
-            task_id = getattr(self_tqdm, "_vigilo_task_id", None)
+            task_id = getattr(self_tqdm, "_bannin_task_id", None)
             if task_id:
                 total = getattr(self_tqdm, "total", None)
                 tracker._complete_task(task_id, final_current=total)

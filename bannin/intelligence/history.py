@@ -1,4 +1,4 @@
-"""Metric history ring buffer — gives Vigilo a memory.
+"""Metric history ring buffer — gives Bannin a memory.
 
 Stores timestamped metric snapshots in a fixed-size deque so that
 downstream systems (OOM predictor, alerts, graphs) can look at trends
@@ -10,8 +10,8 @@ import threading
 import time
 from datetime import datetime, timezone
 
-from vigilo.core.collector import get_memory_metrics, get_disk_metrics, get_cpu_metrics
-from vigilo.core.gpu import get_gpu_metrics
+from bannin.core.collector import get_memory_metrics, get_disk_metrics, get_cpu_metrics
+from bannin.core.gpu import get_gpu_metrics
 
 
 class MetricHistory:
@@ -40,7 +40,7 @@ class MetricHistory:
     def _create_from_config(cls) -> "MetricHistory":
         """Create instance with settings from defaults.json."""
         try:
-            from vigilo.config.loader import get_config
+            from bannin.config.loader import get_config
             cfg = get_config().get("intelligence", {})
             max_readings = cfg.get("history_max_readings", 360)
             interval = cfg.get("collection_interval_seconds", 5)
@@ -81,7 +81,7 @@ class MetricHistory:
 
             # Also run alert evaluation on each cycle
             try:
-                from vigilo.intelligence.alerts import ThresholdEngine
+                from bannin.intelligence.alerts import ThresholdEngine
                 ThresholdEngine.get().evaluate()
             except Exception:
                 pass

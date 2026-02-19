@@ -7,7 +7,7 @@ predict when RAM or GPU VRAM will be exhausted.  All math is pure Python
 
 import time
 
-from vigilo.intelligence.history import MetricHistory
+from bannin.intelligence.history import MetricHistory
 
 
 class OOMPredictor:
@@ -15,7 +15,7 @@ class OOMPredictor:
 
     def __init__(self):
         try:
-            from vigilo.config.loader import get_config
+            from bannin.config.loader import get_config
             cfg = get_config().get("intelligence", {}).get("oom", {})
             self._min_points = cfg.get("min_data_points", 12)
             self._confidence_threshold = cfg.get("confidence_threshold", 70)

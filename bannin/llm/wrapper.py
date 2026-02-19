@@ -1,25 +1,25 @@
 """Client wrappers that intercept LLM API calls for tracking.
 
 Usage:
-    import vigilo
+    import bannin
     from openai import OpenAI
 
-    client = vigilo.wrap(OpenAI())
+    client = bannin.wrap(OpenAI())
     response = client.chat.completions.create(model="gpt-4o", messages=[...])
-    # ^ Vigilo automatically tracks tokens, cost, and latency
+    # ^ Bannin automatically tracks tokens, cost, and latency
 
 Streaming is also supported:
     response = client.chat.completions.create(model="gpt-4o", messages=[...], stream=True)
     for chunk in response:
         print(chunk.choices[0].delta.content, end="")
-    # ^ Vigilo captures usage from the final streaming chunk automatically
+    # ^ Bannin captures usage from the final streaming chunk automatically
 """
 
 import time
 
-from vigilo.llm.tracker import LLMTracker, track
+from bannin.llm.tracker import LLMTracker, track
 
-_WRAPPED_MARKER = "_vigilo_wrapped"
+_WRAPPED_MARKER = "_bannin_wrapped"
 
 
 def wrap(client):
@@ -56,7 +56,7 @@ def wrap(client):
         _wrap_google(client)
     else:
         raise TypeError(
-            f"vigilo.wrap() does not recognize client type '{client_class}' "
+            f"bannin.wrap(): unrecognized client type '{client_class}' "
             f"(module: {client_module}). "
             f"Supported: OpenAI, AzureOpenAI, Anthropic, GenerativeModel."
         )

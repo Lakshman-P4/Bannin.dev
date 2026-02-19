@@ -7,7 +7,7 @@ import threading
 import time
 from datetime import datetime, timezone
 
-from vigilo.llm.pricing import calculate_cost, get_context_window, get_provider
+from bannin.llm.pricing import calculate_cost, get_context_window, get_provider
 
 
 class LLMTracker:
@@ -245,7 +245,7 @@ class LLMTracker:
 
         # Threshold-based warnings come from the central alert engine
         try:
-            from vigilo.intelligence.alerts import ThresholdEngine
+            from bannin.intelligence.alerts import ThresholdEngine
             active = ThresholdEngine.get().get_active_alerts()
             for alert in active.get("active", []):
                 # Only include LLM-related alerts here
@@ -261,7 +261,7 @@ class track:
     """Context manager for creating a named tracking scope.
 
     Usage:
-        with vigilo.track("my-experiment"):
+        with bannin.track("my-experiment"):
             response = client.chat.completions.create(...)
             # calls are tagged with this scope name
     """

@@ -4,7 +4,7 @@ Prices are loaded from remote config (defaults.json → cache → GitHub)
 so they stay current without a package release.
 """
 
-from vigilo.config.loader import get_config
+from bannin.config.loader import get_config
 
 # Hardcoded fallback — used only if config loading completely fails
 _FALLBACK_MODELS = {

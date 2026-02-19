@@ -3,14 +3,14 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "vigilo"
+name = "bannin"
 version = "0.1.0"
 description = "Universal monitoring platform — watch your machines, LLMs, notebooks, and coding tools from your phone."
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.9"
 authors = [
-    {name = "Vigilo Team"}
+    {name = "Bannin Team"}
 ]
 keywords = ["monitoring", "system-metrics", "llm", "gpu", "colab", "kaggle", "machine-learning"]
 classifiers = [
@@ -38,15 +38,15 @@ mcp = ["mcp>=1.2.0"]
 all = ["pynvml>=11.5.0", "mcp>=1.2.0"]
 
 [project.scripts]
-vigilo = "vigilo.cli:main"
-vigilo-mcp = "vigilo.mcp.__main__:main"
+bannin = "bannin.cli:main"
+bannin-mcp = "bannin.mcp.__main__:main"
 
 [project.urls]
-Homepage = "https://github.com/vigilo-dev/vigilo"
-Issues = "https://github.com/vigilo-dev/vigilo/issues"
+Homepage = "https://github.com/bannin-dev/bannin"
+Issues = "https://github.com/bannin-dev/bannin/issues"
 
 [tool.setuptools.packages.find]
-include = ["vigilo*"]
+include = ["bannin*"]
 
 [tool.setuptools.package-data]
-vigilo = ["dashboard.html", "config/*.json"]
+bannin = ["dashboard.html", "config/*.json"]

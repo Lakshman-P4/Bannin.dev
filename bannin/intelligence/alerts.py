@@ -49,7 +49,7 @@ class ThresholdEngine:
 
     def _load_rules(self) -> list[dict]:
         try:
-            from vigilo.config.loader import get_config
+            from bannin.config.loader import get_config
             cfg = get_config().get("intelligence", {}).get("alerts", {})
             return cfg.get("rules", [])
         except Exception:
@@ -57,7 +57,7 @@ class ThresholdEngine:
 
     def _detect_platform(self) -> str:
         try:
-            from vigilo.platforms.detector import detect_platform
+            from bannin.platforms.detector import detect_platform
             return detect_platform()
         except Exception:
             return "local"
@@ -176,7 +176,7 @@ class ThresholdEngine:
 
         # System metrics
         try:
-            from vigilo.core.collector import get_memory_metrics, get_disk_metrics, get_cpu_metrics
+            from bannin.core.collector import get_memory_metrics, get_disk_metrics, get_cpu_metrics
             snapshot["memory"] = get_memory_metrics()
             snapshot["disk"] = get_disk_metrics()
             snapshot["cpu"] = get_cpu_metrics()
@@ -185,7 +185,7 @@ class ThresholdEngine:
 
         # GPU metrics
         try:
-            from vigilo.core.gpu import get_gpu_metrics
+            from bannin.core.gpu import get_gpu_metrics
             gpus = get_gpu_metrics()
             if gpus:
                 # Use the first GPU for simple threshold checks
@@ -196,7 +196,7 @@ class ThresholdEngine:
 
         # OOM predictions
         try:
-            from vigilo.intelligence.oom import OOMPredictor
+            from bannin.intelligence.oom import OOMPredictor
             predictor = OOMPredictor()
             snapshot["predictions"] = {"oom": predictor.predict()}
         except Exception:
@@ -204,7 +204,7 @@ class ThresholdEngine:
 
         # Task tracking
         try:
-            from vigilo.intelligence.progress import ProgressTracker
+            from bannin.intelligence.progress import ProgressTracker
             tasks_data = ProgressTracker.get().get_tasks()
             active = tasks_data.get("active_tasks", [])
             completed = tasks_data.get("completed_tasks", [])
@@ -224,7 +224,7 @@ class ThresholdEngine:
 
         # LLM metrics
         try:
-            from vigilo.llm.tracker import LLMTracker
+            from bannin.llm.tracker import LLMTracker
             tracker = LLMTracker.get()
             summary = tracker.get_summary()
             snapshot["llm"] = {
@@ -236,10 +236,10 @@ class ThresholdEngine:
 
         # Platform metrics
         try:
-            from vigilo.platforms.detector import detect_platform
+            from bannin.platforms.detector import detect_platform
             plat = detect_platform()
             if plat == "colab":
-                from vigilo.platforms.colab import get_colab_metrics
+                from bannin.platforms.colab import get_colab_metrics
                 platform_data = get_colab_metrics()
                 session = platform_data.get("session", {})
                 snapshot["platform"] = {
@@ -247,7 +247,7 @@ class ThresholdEngine:
                     "storage": {"percent": platform_data.get("storage", {}).get("percent_used", 0)},
                 }
             elif plat == "kaggle":
-                from vigilo.platforms.kaggle import get_kaggle_metrics
+                from bannin.platforms.kaggle import get_kaggle_metrics
                 platform_data = get_kaggle_metrics()
                 session = platform_data.get("session", {})
                 snapshot["platform"] = {

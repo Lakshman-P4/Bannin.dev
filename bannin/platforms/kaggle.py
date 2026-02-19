@@ -5,7 +5,7 @@ import socket
 
 import psutil
 
-from vigilo.config.loader import get_kaggle_config
+from bannin.config.loader import get_kaggle_config
 
 _session_start_time = time.time()
 
@@ -373,7 +373,7 @@ def _generate_warnings(accel_type: str) -> list[str]:
 
     # Threshold-based warnings come from the central alert engine
     try:
-        from vigilo.intelligence.alerts import ThresholdEngine
+        from bannin.intelligence.alerts import ThresholdEngine
         active = ThresholdEngine.get().get_active_alerts()
         for alert in active.get("active", []):
             warnings.append(alert["message"])
