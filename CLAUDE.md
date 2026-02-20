@@ -90,6 +90,7 @@ bannin/
     process_names.py       # Friendly process name mapping
   intelligence/
     alerts.py              # Threshold-based alert engine
+    chat.py                # Rule-based chatbot (intent detection, data-driven responses)
     history.py             # Metric history ring buffer (2s intervals, 30min window)
     oom.py                 # OOM prediction (linear regression on memory trend)
     progress.py            # Training progress detection (tqdm hook, stdout regex)
@@ -116,8 +117,15 @@ bannin/
 | `/health` | GET | Agent alive check |
 | `/metrics` | GET | Full system snapshot (CPU, RAM, disk, network, GPU) |
 | `/status` | GET | Agent identity (hostname, OS, version, uptime) |
-| `/processes` | GET | Top processes by resource usage |
+| `/processes` | GET | Top processes with friendly names, categories, descriptions |
 | `/summary` | GET | Plain-English system health summary |
+| `/chat` | POST | Chatbot endpoint (natural language system health assistant) |
+| `/alerts` | GET | Full alert history for this session |
+| `/alerts/active` | GET | Currently active alerts |
+| `/predictions/oom` | GET | OOM prediction with confidence and time-to-crash |
+| `/history/memory` | GET | Memory usage history over last N minutes |
+| `/tasks` | GET | Tracked tasks (training progress, ETAs) |
+| `/tasks/{id}` | GET | Single task detail |
 | `/llm/usage` | GET | LLM session health and usage summary |
 | `/llm/calls` | GET | Recent LLM API call history |
 | `/llm/context` | GET | Context window exhaustion prediction |
@@ -149,6 +157,24 @@ bannin/
 | CPU/RAM/Disk | psutil | psutil |
 | GPU | macmon (planned) | pynvml (NVIDIA) |
 | Process mgmt | psutil + signal | psutil + signal |
+
+## Dashboard Features
+
+- **Live metrics**: CPU, RAM, Disk, GPU gauges with color-coded bars (cyan/amber/red)
+- **Visual urgency**: Metric cards glow amber at 60% usage, pulse red at 80%+
+- **Process table**: Top 8 processes with friendly names, category badges, hover tooltips (2s delay) explaining what each process is and why multi-instance counts are normal
+- **Memory trend chart**: 5-minute rolling Chart.js graph
+- **OOM prediction**: Real-time memory crash prediction with confidence scores
+- **Alerts banner**: Active alerts with severity indicators
+- **Plain-English summary**: One-click system health summary with suggestions
+- **Chatbot ("Ask Bannin")**: Inline chat with intent detection, data-driven responses, 1.8s typing delay with eye-blink animation. Handles system health questions, disk/RAM/CPU analysis, off-topic/social messages
+- **Loading eye animation**: Bannin eye opens when data is ready
+- **Glassmorphism design**: Near-black palette, backdrop blur, gradient border reveals on hover
+
+## Other Files
+
+- `feedback.html` — Trial feedback form (12 questions, Phase 1 & 2). Submits to Google Sheets via Apps Script.
+- `trial.md` / `trial-colab.md` / `trial-vscode.md` / `trial-powershell.md` — Platform-specific trial guides.
 
 ## Known Issues
 
