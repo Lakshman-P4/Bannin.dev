@@ -93,13 +93,59 @@ body { background: var(--bg-body); color: var(--text-primary); font-family: var(
 .proc-table th { text-align: left; padding: 8px 10px; color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); }
 .proc-table td { padding: 8px 10px; font-family: var(--font-mono); border-bottom: 1px solid rgba(255,255,255,0.03); }
 .proc-table tr:nth-child(even) td { background: rgba(255,255,255,0.02); }
-.proc-name { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proc-name { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .platform-badge { display: inline-block; padding: 4px 14px; border-radius: 6px; font-size: 13px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 14px; }
 .platform-badge.local { background: rgba(0,212,255,0.15); color: var(--cyan); }
 .platform-badge.colab { background: rgba(240,165,0,0.15); color: var(--amber); }
 .platform-badge.kaggle { background: rgba(0,255,136,0.15); color: var(--green); }
 .platform-details { font-size: 13px; color: var(--text-secondary); line-height: 1.8; }
 .platform-details span { color: var(--text-primary); font-family: var(--font-mono); }
+
+.summary-header { display: flex; align-items: center; gap: 10px; }
+.summary-toggle-btn { background: rgba(0,212,255,0.12); color: var(--cyan); border: 1px solid rgba(0,212,255,0.3); border-radius: 8px; padding: 8px 18px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s ease; letter-spacing: 0.5px; }
+.summary-toggle-btn:hover { background: rgba(0,212,255,0.2); box-shadow: 0 0 12px rgba(0,212,255,0.3); }
+.summary-toggle-btn.active { background: rgba(0,212,255,0.06); border-color: rgba(0,212,255,0.15); }
+.summary-refresh-btn { background: rgba(255,255,255,0.06); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; font-size: 16px; cursor: pointer; transition: all 0.2s ease; line-height: 1; }
+.summary-refresh-btn:hover { background: rgba(255,255,255,0.1); color: var(--cyan); }
+.summary-refresh-btn.spinning { animation: spin 0.6s ease; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.summary-content { margin-top: 14px; }
+.summary-box { margin-bottom: 24px; padding: 18px 22px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg-card); }
+.summary-box.healthy { border-left: 4px solid var(--green); }
+.summary-box.busy { border-left: 4px solid var(--cyan); }
+.summary-box.strained { border-left: 4px solid var(--amber); }
+.summary-box.critical { border-left: 4px solid var(--red); }
+.summary-headline { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
+.summary-box.healthy .summary-headline { color: var(--green); }
+.summary-box.busy .summary-headline { color: var(--cyan); }
+.summary-box.strained .summary-headline { color: var(--amber); }
+.summary-box.critical .summary-headline { color: var(--red); }
+.summary-details { font-size: 13px; color: var(--text-secondary); line-height: 1.6; }
+.summary-suggestions { margin-top: 8px; font-size: 13px; color: var(--text-primary); }
+.summary-suggestions li { margin-left: 16px; margin-bottom: 2px; list-style: disc; }
+.metric-breakdown { margin-top: 10px; font-size: 12px; }
+.metric-breakdown-row { display: flex; justify-content: space-between; padding: 3px 0; color: var(--text-secondary); }
+.metric-breakdown-name { max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.metric-breakdown-val { font-family: var(--font-mono); color: var(--text-primary); }
+.category-badge { display: inline-block; padding: 1px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+.category-badge.browser { background: rgba(0,212,255,0.12); color: var(--cyan); }
+.category-badge.development { background: rgba(0,255,136,0.12); color: var(--green); }
+.category-badge.communication { background: rgba(138,96,255,0.15); color: #a87fff; }
+.category-badge.productivity { background: rgba(240,165,0,0.12); color: var(--amber); }
+.category-badge.media { background: rgba(255,100,150,0.12); color: #ff6496; }
+.category-badge.creative { background: rgba(255,100,150,0.12); color: #ff6496; }
+.category-badge.system { background: rgba(255,255,255,0.06); color: var(--text-secondary); }
+.category-badge.security { background: rgba(255,68,68,0.12); color: var(--red); }
+.category-badge.gaming { background: rgba(138,96,255,0.15); color: #a87fff; }
+.category-badge.monitoring { background: rgba(0,212,255,0.12); color: var(--cyan); }
+.category-badge.other { background: rgba(255,255,255,0.06); color: var(--text-secondary); }
+.proc-instances { font-size: 11px; color: var(--text-muted); margin-left: 4px; }
+.detected-task { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+.detected-task:last-child { border-bottom: none; }
+.detected-task-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px rgba(0,255,136,0.4); flex-shrink: 0; }
+.detected-task-name { font-size: 14px; font-weight: 500; flex: 1; }
+.detected-task-detail { font-size: 11px; color: var(--text-secondary); font-family: var(--font-mono); }
+.detected-task-via { font-size: 11px; color: var(--text-muted); }
 @media (max-width: 900px) {
     .metric-cards, .metric-cards.no-gpu { grid-template-columns: repeat(2,1fr); }
     .two-col, .bottom-row { grid-template-columns: 1fr; }
@@ -133,6 +179,17 @@ body { background: var(--bg-body); color: var(--text-primary); font-family: var(
         </div>
     </div>
 
+    <div class="summary-box" id="summary-box">
+        <div class="summary-header">
+            <button class="summary-toggle-btn" id="summary-toggle-btn" onclick="toggleSummary()">See Summary</button>
+            <button class="summary-refresh-btn" id="summary-refresh-btn" onclick="refreshSummary()" style="display:none;" title="Refresh summary">&#x21bb;</button>
+        </div>
+        <div class="summary-content" id="summary-content" style="display:none;">
+            <div class="summary-headline" id="summary-headline"></div>
+            <div class="summary-details" id="summary-details"></div>
+            <ul class="summary-suggestions" id="summary-suggestions"></ul>
+        </div>
+    </div>
     <div class="metric-cards no-gpu" id="metric-cards">
         <div class="card metric-card" id="card-cpu">
             <div class="metric-icon"><svg viewBox="0 0 24 24" fill="none" stroke="#00d4ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><line x1="8" y1="12" x2="8" y2="16"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="16" y1="10" x2="16" y2="16"/></svg></div>
@@ -140,6 +197,7 @@ body { background: var(--bg-body); color: var(--text-primary); font-family: var(
             <div class="metric-value" id="cpu-value">--</div>
             <div class="metric-bar"><div class="metric-bar-fill" id="cpu-bar"></div></div>
             <div class="metric-detail" id="cpu-detail">&nbsp;</div>
+            <div class="metric-breakdown" id="cpu-breakdown"></div>
         </div>
         <div class="card metric-card" id="card-ram">
             <div class="metric-icon"><svg viewBox="0 0 24 24" fill="none" stroke="#00d4ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="12" rx="2"/><line x1="7" y1="10" x2="7" y2="14"/><line x1="11" y1="10" x2="11" y2="14"/><line x1="15" y1="10" x2="15" y2="14"/><line x1="19" y1="10" x2="19" y2="14"/></svg></div>
@@ -147,6 +205,7 @@ body { background: var(--bg-body); color: var(--text-primary); font-family: var(
             <div class="metric-value" id="ram-value">--</div>
             <div class="metric-bar"><div class="metric-bar-fill" id="ram-bar"></div></div>
             <div class="metric-detail" id="ram-detail">&nbsp;</div>
+            <div class="metric-breakdown" id="ram-breakdown"></div>
         </div>
         <div class="card metric-card" id="card-disk">
             <div class="metric-icon"><svg viewBox="0 0 24 24" fill="none" stroke="#00d4ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><line x1="12" y1="2.27" x2="12" y2="12"/><line x1="12" y1="12" x2="21.18" y2="7.13"/><line x1="12" y1="12" x2="2.82" y2="7.13"/></svg></div>
@@ -193,7 +252,7 @@ body { background: var(--bg-body); color: var(--text-primary); font-family: var(
         <div class="card">
             <div class="card-title">Top Processes</div>
             <table class="proc-table">
-                <thead><tr><th>Name</th><th>PID</th><th>CPU %</th><th>MEM %</th></tr></thead>
+                <thead><tr><th>Application</th><th>Category</th><th>CPU %</th><th>RAM</th></tr></thead>
                 <tbody id="proc-tbody"><tr><td colspan="4" class="empty-state">Loading&hellip;</td></tr></tbody>
             </table>
         </div>
@@ -301,6 +360,61 @@ function initChart() {
 }
 
 var gpuVisible = false;
+var summaryOpen = false;
+
+function toggleSummary() {
+    var content = document.getElementById("summary-content");
+    var btn = document.getElementById("summary-toggle-btn");
+    var refreshBtn = document.getElementById("summary-refresh-btn");
+    summaryOpen = !summaryOpen;
+    if (summaryOpen) {
+        btn.textContent = "Hide Summary";
+        btn.classList.add("active");
+        refreshBtn.style.display = "";
+        content.style.display = "";
+        refreshSummary();
+    } else {
+        btn.textContent = "See Summary";
+        btn.classList.remove("active");
+        refreshBtn.style.display = "none";
+        content.style.display = "none";
+    }
+}
+
+function refreshSummary() {
+    var refreshBtn = document.getElementById("summary-refresh-btn");
+    refreshBtn.classList.add("spinning");
+    setTimeout(function() { refreshBtn.classList.remove("spinning"); }, 600);
+    fetchJSON(BASE + "/summary").then(function(data) {
+        if (data) updateSummary(data);
+    });
+}
+
+function updateSummary(data) {
+    var box = document.getElementById("summary-box");
+    if (\!data || \!data.level) { box.style.display = "none"; return; }
+    box.style.display = "";
+    box.className = "summary-box " + data.level;
+    document.getElementById("summary-headline").textContent = data.headline || "";
+    document.getElementById("summary-details").textContent = data.details || "";
+    var ul = document.getElementById("summary-suggestions");
+    if (data.suggestions && data.suggestions.length > 0) {
+        ul.style.display = "";
+        ul.innerHTML = data.suggestions.map(function(s) { return "<li>" + s + "</li>"; }).join("");
+    } else {
+        ul.style.display = "none";
+        ul.innerHTML = "";
+    }
+}
+
+function updateBreakdown(elementId, items) {
+    var el = document.getElementById(elementId);
+    if (\!el) return;
+    if (\!items || items.length === 0) { el.innerHTML = ""; return; }
+    el.innerHTML = items.map(function(item) {
+        return '<div class="metric-breakdown-row"><span class="metric-breakdown-name">' + (item.name || "--") + '</span><span class="metric-breakdown-val">' + (item.display || "--") + '</span></div>';
+    }).join("");
+}
 
 function updateSystemCards(metrics) {
     if (!metrics) return;
@@ -334,6 +448,11 @@ function updateSystemCards(metrics) {
         document.getElementById("gpu-detail").textContent = g.name || "GPU";
         gpuCard.style.display = ""; cc.classList.remove("no-gpu"); gpuVisible = true;
     } else { gpuCard.style.display = "none"; cc.classList.add("no-gpu"); gpuVisible = false; }
+    var bd = metrics.resource_breakdown;
+    if (bd) {
+        updateBreakdown("cpu-breakdown", bd.cpu);
+        updateBreakdown("ram-breakdown", bd.ram);
+    }
 }
 
 function updateAlertsBanner(data) {
@@ -402,18 +521,29 @@ function updateOOM(data) {
 
 function updateTasks(data) {
     var c = document.getElementById("tasks-container");
-    if (!data) { c.innerHTML = '<div class="empty-state">No tasks tracked yet</div>'; return; }
-    var all = [].concat(data.active_tasks || [], data.stalled_tasks || [], (data.completed_tasks || []).slice(0, 3));
-    if (all.length === 0) { c.innerHTML = '<div class="empty-state">No tasks tracked yet</div>'; return; }
-    c.innerHTML = all.map(function(t) {
-        var pct = t.percent != null ? t.percent : 0;
-        var sc = t.status === "stalled" ? " task-stalled" : "";
-        var det = [];
-        if (t.current != null && t.total != null) det.push(t.current + "/" + t.total);
-        if (t.eta_human) det.push("ETA: " + t.eta_human);
-        if (t.status) det.push(t.status);
-        return '<div class="task-item' + sc + '"><div class="task-header"><span class="task-name">' + (t.name || "Task") + '</span><span class="task-pct">' + pct.toFixed(1) + '%</span></div><div class="task-bar"><div class="task-bar-fill" style="width:' + pct + '%"></div></div><div class="task-detail">' + det.join(" &middot; ") + '</div></div>';
-    }).join("");
+    if (!data) { c.innerHTML = '<div class="empty-state">No tasks detected</div>'; return; }
+    var h = "";
+    var tracked = [].concat(data.active_tasks || [], data.stalled_tasks || [], (data.completed_tasks || []).slice(0, 3));
+    if (tracked.length > 0) {
+        h += tracked.map(function(t) {
+            var pct = t.percent != null ? t.percent : 0;
+            var sc = t.status === "stalled" ? " task-stalled" : "";
+            var det = [];
+            if (t.current != null && t.total != null) det.push(t.current + "/" + t.total);
+            if (t.eta_human) det.push("ETA: " + t.eta_human);
+            if (t.status) det.push(t.status);
+            return '<div class="task-item' + sc + '"><div class="task-header"><span class="task-name">' + (t.name || "Task") + '</span><span class="task-pct">' + pct.toFixed(1) + '%</span></div><div class="task-bar"><div class="task-bar-fill" style="width:' + pct + '%"></div></div><div class="task-detail">' + det.join(" &middot; ") + '</div></div>';
+        }).join("");
+    }
+    var detected = data.detected_tasks || [];
+    if (detected.length > 0) {
+        h += detected.map(function(t) {
+            var via = t.via ? '<span class="detected-task-via"> &middot; via ' + t.via + '</span>' : '';
+            return '<div class="detected-task"><div class="detected-task-dot"></div><div><div class="detected-task-name">' + (t.name || "Process") + '</div><div class="detected-task-detail">running for ' + (t.elapsed_human || "--") + via + '</div></div></div>';
+        }).join("");
+    }
+    if (h === "") { c.innerHTML = '<div class="empty-state">No tasks detected</div>'; return; }
+    c.innerHTML = h;
 }
 
 function updateLLM(data) {
@@ -443,10 +573,17 @@ function updateLLM(data) {
 function updateProcesses(data) {
     var tbody = document.getElementById("proc-tbody");
     var procs = Array.isArray(data) ? data : (data && data.top_processes ? data.top_processes : []);
-    procs = procs.slice(0, 5);
+    procs = procs.slice(0, 8);
     if (procs.length === 0) { tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No process data</td></tr>'; return; }
     tbody.innerHTML = procs.map(function(p) {
-        return '<tr><td class="proc-name" title="' + (p.name || "") + '">' + (p.name || "--") + '</td><td>' + (p.pid || "--") + '</td><td>' + (p.cpu_percent != null ? p.cpu_percent.toFixed(1) : "--") + '</td><td>' + (p.memory_percent != null ? p.memory_percent.toFixed(1) : "--") + '</td></tr>';
+        var name = p.name || "--";
+        var instances = (p.instance_count && p.instance_count > 1) ? '<span class="proc-instances">\u00d7' + p.instance_count + '</span>' : '';
+        var cat = p.category ? '<span class="category-badge ' + (p.category || "other").toLowerCase() + '">' + p.category + '</span>' : '';
+        var ram = "--";
+        if (p.memory_mb != null) {
+            ram = p.memory_mb >= 1024 ? (p.memory_mb / 1024).toFixed(1) + " GB" : Math.round(p.memory_mb) + " MB";
+        }
+        return '<tr><td class="proc-name" title="' + name + '">' + name + instances + '</td><td>' + cat + '</td><td>' + (p.cpu_percent != null ? p.cpu_percent.toFixed(1) + '%' : "--") + '</td><td>' + ram + '</td></tr>';
     }).join("");
 }
 

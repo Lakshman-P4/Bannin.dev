@@ -8,7 +8,10 @@ from fastapi.responses import HTMLResponse
 
 from bannin.core.collector import get_all_metrics
 from bannin.core.gpu import get_gpu_metrics, is_gpu_available
-from bannin.core.process import get_process_count, get_top_processes
+from bannin.core.process import (
+    get_process_count, get_top_processes,
+    get_grouped_processes, get_resource_breakdown, get_detected_tasks,
+)
 from bannin.platforms.detector import detect_platform
 
 _start_time = time.time()
@@ -71,14 +74,15 @@ def metrics():
     data = get_all_metrics()
     data["gpu"] = get_gpu_metrics()
     data["environment"] = _detected_platform
+    data["resource_breakdown"] = get_resource_breakdown()
     return data
 
 
 @app.get("/processes")
-def processes(limit: int = 10):
+def processes(limit: int = 15):
     return {
         "summary": get_process_count(),
-        "top_processes": get_top_processes(limit=limit),
+        "top_processes": get_grouped_processes(limit=limit),
     }
 
 
@@ -170,9 +174,11 @@ def alerts_active():
 
 @app.get("/tasks")
 def tasks():
-    """Tracked tasks — training progress, ETAs, and completion status."""
+    """Tracked tasks — training progress, ETAs, detected running scripts."""
     from bannin.intelligence.progress import ProgressTracker
-    return ProgressTracker.get().get_tasks()
+    data = ProgressTracker.get().get_tasks()
+    data["detected_tasks"] = get_detected_tasks()
+    return data
 
 
 @app.get("/tasks/{task_id}")
@@ -183,3 +189,10 @@ def task_detail(task_id: str):
     if task is None:
         return {"error": f"Task '{task_id}' not found"}
     return task
+
+
+@app.get("/summary")
+def summary():
+    """Plain-English system health summary for non-technical users."""
+    from bannin.intelligence.summary import generate_summary
+    return generate_summary()
