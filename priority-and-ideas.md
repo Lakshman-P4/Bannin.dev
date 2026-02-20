@@ -184,6 +184,33 @@ Logic: users first, infrastructure second. Don't build plumbing before you have 
 
 ---
 
+## Idea: Ghost Files - Disk Cleanup Intelligence
+
+**What it is**: Identify files on the system that serve no current purpose — temporary files, stale caches, old build artifacts, orphaned logs — and offer the user the option to clean them up.
+
+**The problem**: People accumulate gigabytes of cruft they don't know about. On Colab/Kaggle, storage is limited and temporary, so ghost files can push you over the disk limit and crash your notebook. On local machines, it's slower and messier but still wastes space.
+
+**What Bannin would do**:
+- Scan for known ghost file patterns:
+  - Pip cache (`/root/.cache/pip`, `~/.cache/pip`)
+  - Python bytecode (`__pycache__`, `.pyc` files)
+  - Build artifacts (`build/`, `dist/`, `*.egg-info`)
+  - Old checkpoints and log files not modified in days
+  - Temporary files (`/tmp` leftovers, `.tmp`, `.bak`)
+  - Jupyter notebook checkpoints (`.ipynb_checkpoints`)
+- Check if files are being used by any running process
+- Classify by confidence: "definitely safe to delete" vs "probably safe" vs "review first"
+- Surface findings: "Found 2.3 GB of likely unused files. Here's what they are."
+- Offer cleanup with consent — never auto-delete
+
+**Why it matters on Colab/Kaggle especially**: Free tier has limited disk. Students generate checkpoint files, cached packages, temp datasets. Ghost files can be the difference between "notebook works" and "out of disk, crash." Bannin could warn: "4.7 GB of cached pip packages. Disk at 82%. Want to clear?"
+
+**Philosophy fit**: Proactive (comes to you), actionable (offers a solution), consent-based (never acts without permission). Classic L2/L3 feature.
+
+**When**: Post-Phase 4. Needs the core product stable and users providing feedback first. But it's a natural extension of system monitoring.
+
+---
+
 ## Quick Ideas (Unscoped)
 
 - **VS Code extension**: sidebar panel with Bannin metrics (demand-dependent, Phase 6+)
