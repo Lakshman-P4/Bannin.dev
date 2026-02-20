@@ -31,7 +31,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
@@ -203,3 +203,11 @@ def summary():
     """Plain-English system health summary for non-technical users."""
     from bannin.intelligence.summary import generate_summary
     return generate_summary()
+
+
+@app.post("/chat")
+def chat_endpoint(body: dict):
+    """Chatbot endpoint — natural language system health assistant."""
+    from bannin.intelligence.chat import chat
+    message = body.get("message", "")
+    return chat(message)

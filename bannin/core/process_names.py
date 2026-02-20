@@ -197,6 +197,134 @@ PROCESS_MAP = {
     "bannin": ("Bannin Agent", "Monitoring", False),
 }
 
+# Descriptions shown on hover in the dashboard. Explains what the process is
+# and why it may have many instances. Keyed by friendly_name.
+PROCESS_DESCRIPTIONS = {
+    # Browsers
+    "Google Chrome": "Web browser by Google. Each tab, extension, and internal service runs as a separate process for stability and security — one tab crashing won't take down the rest.",
+    "Microsoft Edge": "Windows default browser built on Chromium. Like Chrome, each tab and extension runs in its own process for isolation.",
+    "Mozilla Firefox": "Privacy-focused browser. Uses multiple processes to separate tabs and plugins, though fewer than Chromium-based browsers.",
+    "Safari": "Apple's built-in browser. Uses separate processes per tab for security sandboxing.",
+    "Opera": "Chromium-based browser with built-in VPN and ad blocker. Multi-process architecture like Chrome.",
+    "Brave Browser": "Privacy-first Chromium browser. Multi-process architecture — each tab is isolated.",
+    "Vivaldi": "Highly customizable Chromium-based browser. Multi-process like Chrome.",
+    "Arc Browser": "Modern browser with workspace organisation. Chromium multi-process architecture.",
+
+    # Development
+    "VS Code": "Microsoft's code editor. Runs extension host processes, language servers, and terminal shells as separate processes.",
+    "VS Code Insiders": "Pre-release version of VS Code with early features. Same multi-process architecture.",
+    "Cursor": "AI-powered code editor built on VS Code. Runs language servers, AI features, and terminals as separate processes.",
+    "Windsurf": "AI code editor by Codeium. Based on VS Code architecture with additional AI processes.",
+    "IntelliJ IDEA": "JetBrains Java IDE. Heavy on RAM due to code indexing and analysis.",
+    "PyCharm": "JetBrains Python IDE. Uses significant RAM for code intelligence and type checking.",
+    "WebStorm": "JetBrains JavaScript IDE with deep framework support.",
+    "Sublime Text": "Lightweight, fast text editor. Minimal resource usage compared to Electron-based editors.",
+    "Notepad++": "Fast, lightweight Windows text editor. Very low resource footprint.",
+    "GitHub Desktop": "Git GUI client for managing repositories and pull requests.",
+    "GitKraken": "Visual Git client with built-in merge conflict editor.",
+    "Warp Terminal": "Modern terminal with AI command suggestions. Rust-based for performance.",
+    "iTerm2": "macOS terminal replacement with split panes and search.",
+    "Windows Terminal": "Modern Windows terminal supporting PowerShell, CMD, WSL, and custom shells.",
+    "Hyper Terminal": "Electron-based terminal. Higher memory use than native terminals.",
+    "Git": "Version control system. Brief process spikes during fetch, push, merge, or rebase operations.",
+    "Docker": "Container runtime. Each running container appears as a subprocess.",
+    "Docker Engine": "Background daemon managing all Docker containers and images.",
+    "Docker Desktop": "Desktop app managing Docker Engine, with GUI and Kubernetes support.",
+
+    # Dev runtimes
+    "Python": "Python interpreter. Multiple instances usually mean several scripts, servers, or tools running simultaneously.",
+    "Node.js": "JavaScript runtime. Multiple instances often come from dev servers, build tools, or microservices running in parallel.",
+    "Java": "Java Virtual Machine. Each Java application runs in its own JVM instance.",
+    ".NET": ".NET runtime. Each .NET application runs as a separate process.",
+    "Rust (Cargo)": "Rust package manager and build system. High CPU during compilation.",
+    "Rust Compiler": "The Rust compiler (rustc). CPU-intensive during builds.",
+    "Go": "Go language runtime or build tool.",
+    "Ruby": "Ruby interpreter. Multiple instances from different services or tools.",
+    "Perl": "Perl interpreter.",
+    "PHP": "PHP interpreter or development server.",
+    "Deno": "Secure JavaScript/TypeScript runtime. Alternative to Node.js.",
+    "Bun": "Fast JavaScript runtime, bundler, and package manager.",
+    "npm": "Node.js package manager. Running during install or script execution.",
+    "npx": "npm package runner for executing CLI tools without global install.",
+
+    # Communication
+    "Slack": "Team messaging app. Uses Electron — multiple processes for UI, notifications, and calls.",
+    "Discord": "Voice and text chat. Electron-based with separate processes for voice, UI, and updates.",
+    "Microsoft Teams": "Microsoft collaboration platform. Multiple processes for chat, calls, and background sync.",
+    "Zoom": "Video conferencing app.",
+    "Telegram": "Messaging app. Lightweight compared to Electron-based alternatives.",
+    "WhatsApp": "Messaging app for Windows.",
+    "Signal": "Encrypted messaging app.",
+
+    # Productivity
+    "Microsoft Word": "Document editor from Office suite.",
+    "Microsoft Excel": "Spreadsheet editor. Can be CPU-heavy with large workbooks or formulas.",
+    "Microsoft PowerPoint": "Presentation editor from Office suite.",
+    "Microsoft Outlook": "Email and calendar client. Background processes for mail sync and indexing.",
+    "Microsoft OneNote": "Note-taking app with cloud sync.",
+    "Notion": "All-in-one workspace for notes, wikis, and project management. Electron-based.",
+    "Obsidian": "Markdown-based knowledge management. Electron app with plugin system.",
+    "OneDrive": "Microsoft cloud sync. Background process keeping files synchronised with the cloud.",
+    "Google Drive": "Google cloud storage sync daemon.",
+    "Dropbox": "Cloud file synchronisation service.",
+    "iCloud": "Apple cloud sync for Windows.",
+
+    # Media
+    "Spotify": "Music streaming app. Background process for playback even when minimised.",
+    "VLC Media Player": "Open-source media player supporting virtually all formats.",
+    "iTunes": "Apple media player and iOS device manager.",
+    "Apple Music": "Apple's music streaming service.",
+
+    # Creative
+    "Adobe Photoshop": "Professional image editing. GPU-accelerated — RAM scales with canvas size.",
+    "Adobe Illustrator": "Vector graphics editor.",
+    "Adobe Premiere Pro": "Professional video editing. Heavy CPU/GPU during rendering.",
+    "Adobe After Effects": "Motion graphics and visual effects. Extremely RAM and GPU intensive during previews.",
+    "Figma": "Collaborative design tool. Electron-based with GPU rendering.",
+    "Blender": "Open-source 3D modelling, animation, and rendering. GPU-intensive during renders.",
+
+    # Gaming
+    "Steam": "Game distribution platform. Background processes for game updates and social features.",
+    "Epic Games": "Epic Games Store launcher. Runs background update checks.",
+
+    # System
+    "Windows Explorer": "Windows file manager and desktop shell. Core OS process.",
+    "Task Manager": "Windows system monitor for viewing processes and performance.",
+    "Windows Search": "Background indexing service for instant file and app search.",
+    "Start Menu": "Windows Start Menu renderer.",
+    "Windows Shell": "Windows shell experience including taskbar notifications.",
+    "Windows Runtime": "Broker for Windows Store apps. Multiple instances manage different app permissions.",
+    "Desktop Window Manager": "Composites all windows on screen. Essential for transparency, animations, and multi-monitor.",
+    "Windows Widgets": "Windows widgets panel (news, weather, stocks).",
+    "Windows Settings": "Windows Settings app.",
+    "Memory Compression": "Windows feature that compresses inactive memory pages to free up RAM without writing to disk.",
+    "Synaptics Touchpad": "Touchpad driver and gesture support.",
+    "Finder": "macOS file manager and desktop.",
+    "Dock": "macOS application dock.",
+    "System UI": "macOS menu bar and system indicators.",
+    "Spotlight": "macOS search and indexing.",
+    "WindowServer": "macOS window compositor. Handles all screen rendering.",
+    "macOS Services": "Core macOS service manager (launchd).",
+
+    # Security
+    "Windows Defender": "Built-in Windows antivirus. Background scanning may spike CPU periodically.",
+    "Windows Defender Network": "Network inspection service for Windows Defender.",
+    "Windows Defender Scan": "Active scan process. CPU-intensive during full or quick scans.",
+    "Windows Security": "Windows Security health monitoring service.",
+
+    # AI
+    "Claude Desktop": "Anthropic's Claude AI desktop app. Multiple processes handle the UI, MCP servers, and background services — each connected tool or conversation may spawn additional processes.",
+    "ChatGPT": "OpenAI's ChatGPT desktop app.",
+    "Copilot": "Microsoft Copilot AI assistant.",
+
+    # Edge WebView
+    "Edge WebView": "Embedded browser engine used by other apps (Spotify, Teams, widgets, etc.) to render web content. Many apps share this runtime, so high instance counts are normal.",
+
+    # Bannin
+    "Bannin Agent": "This monitoring agent. Collects system metrics and serves them via API and dashboard.",
+}
+
+
 # Processes to hide from the dashboard — low-level system noise
 HIDDEN_PROCESSES = {
     # Windows
@@ -238,6 +366,11 @@ def get_friendly_name(process_name: str) -> tuple[str, str]:
     # Clean up: strip .exe, capitalize
     clean = key.removesuffix(".exe").replace("_", " ").replace("-", " ").title()
     return clean, "Other"
+
+
+def get_description(friendly_name: str) -> str:
+    """Return a human-readable description for a process, or empty string if unknown."""
+    return PROCESS_DESCRIPTIONS.get(friendly_name, "")
 
 
 def is_hidden(process_name: str) -> bool:

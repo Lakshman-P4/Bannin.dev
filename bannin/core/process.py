@@ -16,7 +16,7 @@ import psutil
 _own_pid = os.getpid()
 
 from bannin.core.process_names import (
-    get_friendly_name, is_hidden, should_split,
+    get_friendly_name, get_description, is_hidden, should_split,
 )
 
 _cpu_primed = False
@@ -134,7 +134,7 @@ def _build_grouped(raw: list) -> list[dict]:
 
     result = []
     for g in groups.values():
-        result.append({
+        entry = {
             "name": g["friendly_name"],
             "category": g["category"],
             "cpu_percent": round(g["cpu_percent"], 1),
@@ -142,7 +142,11 @@ def _build_grouped(raw: list) -> list[dict]:
             "memory_mb": round(g["memory_mb"], 1),
             "instance_count": g["instance_count"],
             "pids": g["pids"],
-        })
+        }
+        desc = get_description(g["friendly_name"])
+        if desc:
+            entry["description"] = desc
+        result.append(entry)
 
     result.sort(key=lambda p: (p["cpu_percent"] + p["memory_percent"]), reverse=True)
     return result
