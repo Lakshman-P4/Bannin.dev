@@ -121,7 +121,47 @@ The MCP server and dashboard can run at the same time - they don't conflict.
 
 ---
 
-## Option B: VS Code / Any Editor Users (Dashboard Only)
+## Option B: Claude Code in Terminal (CLI)
+
+If you use Claude Code from your terminal (not Claude Desktop), MCP setup is automatic.
+
+### Step 3 - Add the MCP config to your project
+
+In whatever project folder you use Claude Code in, create `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "bannin": {
+      "command": "python3",
+      "args": ["-m", "bannin.mcp"]
+    }
+  }
+}
+```
+
+> **Windows users**: change `python3` to `python`
+
+### Step 4 - Start Claude Code
+
+```
+cd your-project-folder
+claude
+```
+
+Claude Code reads `.mcp.json` on startup and connects to Bannin automatically.
+
+### Step 5 - Verify
+
+Type `/mcp` — you should see "bannin" listed with 5 tools. Then just ask naturally:
+
+> "How's my system doing?"
+> "What's eating my RAM?"
+> "Any alerts right now?"
+
+---
+
+## Option C: VS Code / Any Editor Users (Dashboard Only)
 
 ### Step 3 - Start Bannin
 
@@ -157,6 +197,67 @@ Click "See Summary" on the dashboard. You'll get a plain-English report like:
 > **Your computer is a little busy right now.**
 > RAM is at 85%. The biggest memory users are Google Chrome (1.0 GB), Claude Desktop (773 MB), Memory Compression (1.6 GB).
 > *Suggestion: Consider closing some Google Chrome tabs to free up memory.*
+
+---
+
+## Option D: PowerShell / Terminal Only (No Browser Needed)
+
+If you prefer the command line, you can query Bannin's API directly after starting the agent.
+
+### Start the agent first
+
+```
+python -m bannin.cli start
+```
+
+Leave that running, then open a new terminal window.
+
+### Quick health check
+```powershell
+curl http://localhost:8420/health
+```
+Returns: `{"status":"ok"}`
+
+### System metrics (CPU, RAM, disk)
+```powershell
+curl http://localhost:8420/metrics
+```
+
+### See what's running (friendly names)
+```powershell
+curl http://localhost:8420/processes
+```
+
+### Plain-English summary
+```powershell
+curl http://localhost:8420/summary
+```
+Returns something like:
+```json
+{
+  "level": "busy",
+  "headline": "Your computer is a little busy right now.",
+  "details": "RAM is at 92% (7.1 GB of 7.8 GB). The biggest memory users are Memory Compression (1.6 GB), Google Chrome (871 MB).",
+  "suggestions": ["Consider closing some Google Chrome tabs to free up memory."]
+}
+```
+
+### Check active alerts
+```powershell
+curl http://localhost:8420/alerts/active
+```
+
+### OOM prediction
+```powershell
+curl http://localhost:8420/predictions/oom
+```
+
+### Open the dashboard in your browser from PowerShell
+```powershell
+Start-Process http://localhost:8420
+```
+
+> **Mac/Linux equivalent**: `open http://localhost:8420` or `xdg-open http://localhost:8420`
 
 ---
 
