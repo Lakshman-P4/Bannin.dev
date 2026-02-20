@@ -1,18 +1,38 @@
-# Try Bannin
+# Try Bannin with Claude Code
 
-Bannin (番人, Japanese for "watchman") monitors your system health while you work. It tracks CPU, RAM, disk, running processes (with friendly names like "Google Chrome" instead of chrome.exe), predicts out-of-memory crashes, fires smart alerts, and gives you a plain-English summary of how your computer is doing. It works inside Claude Code as an MCP server, or as a live dashboard in your browser.
+Bannin (番人, Japanese for "watchman") monitors your system health while you work. It tracks CPU, RAM, disk, running processes, predicts out-of-memory crashes, fires smart alerts, and gives you a plain-English summary of how your computer is doing.
+
+With Claude Code, Bannin works as an **MCP server** -- meaning Claude can check your system health, see what's running, and predict memory issues through natural conversation. You just ask.
 
 **Tagline**: *I watch so you don't have to.*
 
-**This is an early build.** The core monitoring and intelligence engine is working. Features like phone alerts, a browser extension for ChatGPT/Claude.ai, and conversation health tracking are coming. I'm looking for honest feedback on what's here.
+**This is an early build.** Core monitoring and intelligence are working. Phone alerts, browser extension, and conversation health tracking are coming. Looking for honest feedback.
 
 Takes about 5 minutes to set up.
 
-> **Using Google Colab or Kaggle?** See [trial-colab.md](trial-colab.md) instead -- one cell install, no cloning needed.
+> **Using a different tool?** We have guides for every setup:
+> - [VS Code / Cursor / Windsurf / JetBrains](trial-vscode.md) -- AI editors with MCP support
+> - [Google Colab / Kaggle](trial-colab.md) -- cloud notebooks
+> - [PowerShell / Terminal](trial-powershell.md) -- command line only, no IDE needed
 
 ---
 
-## Step 1 - Clone the repo
+## What you'll get
+
+Once set up, you can ask Claude things like:
+
+- "How's my system doing right now?"
+- "What's eating my RAM?"
+- "Am I going to run out of memory?"
+- "Any alerts I should know about?"
+
+Claude will call Bannin's tools and answer in plain English. No dashboards to check, no tabs to open -- just ask.
+
+You also get a **live dashboard** in your browser at `http://localhost:8420` with real-time charts, process monitoring, and alerts.
+
+---
+
+## Step 1: Clone the repo
 
 Open your terminal and run:
 
@@ -21,9 +41,13 @@ git clone https://github.com/Lakshman-P4/Bannin.dev.git
 cd Bannin.dev
 ```
 
-## Step 2 - Install it
+You should see the project files downloaded. If you get a "repository not found" error, you need collaborator access -- ask me to add you.
 
-**Mac:**
+---
+
+## Step 2: Install Bannin
+
+**Mac / Linux:**
 ```
 pip3 install -e .
 ```
@@ -33,18 +57,27 @@ pip3 install -e .
 pip install --user -e .
 ```
 
-If you see a permissions error, add `--user` to the command.
+This installs Bannin from the source code you just cloned. It should take about 10-15 seconds.
+
+> **What does `-e .` mean?** It installs Bannin in "editable" mode from the current folder. This means if I update the code and you pull the latest changes, you automatically get the updates without reinstalling.
+
+If you see a permissions error on Windows, the `--user` flag should fix it. On Mac, try `pip3` instead of `pip`.
 
 ---
 
-## Option A: Claude Code Users (MCP Server)
+## Step 3: Create the MCP config file
 
-This lets Claude Code check your system health, see what's running, predict memory issues, and more - all through natural conversation.
+Claude Code needs a small config file to know about Bannin. You need to create this file in **whatever project folder you use Claude Code in**.
 
-### Step 3 - Add the MCP config
+**3a.** Open the folder where you normally run Claude Code. For example:
 
-In whatever project folder you use Claude Code in, create a file called `.mcp.json`:
+```
+cd ~/my-project
+```
 
+**3b.** Create a file called `.mcp.json` in that folder. Here's what goes inside:
+
+**Mac / Linux:**
 ```json
 {
   "mcpServers": {
@@ -54,196 +87,125 @@ In whatever project folder you use Claude Code in, create a file called `.mcp.js
     }
   }
 }
-```
-
-> **Windows users**: change `python3` to `python`
-
-### Step 4 - Open Claude Code
-
-Start Claude Code in that project like you normally do. It should automatically detect and connect to Bannin.
-
-### Step 5 - Verify it's connected
-
-Type `/mcp` in Claude Code. You should see "bannin" listed with 5 tools:
-
-- `get_system_metrics` - CPU, RAM, disk, network, GPU
-- `get_running_processes` - what's using your resources (friendly names)
-- `predict_oom` - will you run out of memory?
-- `get_training_status` - progress on long-running tasks
-- `get_active_alerts` - anything that needs attention right now
-
-### Step 6 - Try it out
-
-Ask Claude Code things like:
-
-**Basic health check:**
-> "How's my system doing right now?"
-
-Claude will call `get_system_metrics` and tell you something like: "Your CPU is at 25%, RAM is at 93% (7.3 GB of 7.8 GB) - memory is getting tight. Disk is at 79%."
-
-**See what's running:**
-> "What's using the most resources on my machine?"
-
-You'll see friendly names: "Google Chrome (Browser) x26 - 39.9% CPU, 1020 MB" instead of raw `chrome.exe` entries.
-
-**Memory prediction:**
-> "Am I going to run out of memory?"
-
-Bannin will analyze your memory usage trend and tell you if OOM is likely, with confidence percentage and time estimate.
-
-**Check alerts:**
-> "Are there any active alerts?"
-
-Shows current warnings like "RAM HIGH: 92% used" - but only if the condition is still true right now (alerts disappear when the problem goes away).
-
-### Want the dashboard too?
-
-Open a separate terminal and run:
-
-**Mac:**
-```
-python3 -m bannin.cli start
 ```
 
 **Windows:**
-```
-python -m bannin.cli start
-```
-
-Then open `http://localhost:8420` in your browser. You'll see:
-- A loading animation (Bannin's eye opening)
-- Live CPU, RAM, disk with top consumers under each
-- Process table with friendly names and category badges
-- Alerts banner (only when something is wrong)
-- "See Summary" button for a plain-English health report
-- Memory usage chart over time
-- OOM predictions and task tracking
-
-The MCP server and dashboard can run at the same time - they don't conflict.
-
----
-
-## Option B: Claude Code in Terminal (CLI)
-
-If you use Claude Code from your terminal (not Claude Desktop), MCP setup is automatic.
-
-### Step 3 - Add the MCP config to your project
-
-In whatever project folder you use Claude Code in, create `.mcp.json`:
-
 ```json
 {
   "mcpServers": {
     "bannin": {
-      "command": "python3",
+      "command": "python",
       "args": ["-m", "bannin.mcp"]
     }
   }
 }
 ```
 
-> **Windows users**: change `python3` to `python`
+> **Important:** The file name starts with a dot (`.mcp.json`). On Mac, files starting with a dot are hidden by default. You can create it from the terminal:
+> ```
+> # Mac/Linux:
+> nano .mcp.json
+> # paste the JSON above, save with Ctrl+O, exit with Ctrl+X
+>
+> # Windows (PowerShell):
+> notepad .mcp.json
+> # paste the JSON above, save, close
+> ```
 
-### Step 4 - Start Claude Code
+---
+
+## Step 4: Start Claude Code
+
+Open your terminal, navigate to the project folder where you put `.mcp.json`, and start Claude Code:
 
 ```
-cd your-project-folder
+cd ~/my-project
 claude
 ```
 
-Claude Code reads `.mcp.json` on startup and connects to Bannin automatically.
-
-### Step 5 - Verify
-
-Type `/mcp` -- you should see "bannin" listed with 5 tools. Then just ask naturally:
-
-> "How's my system doing?"
-> "What's eating my RAM?"
-> "Any alerts right now?"
+Claude Code reads `.mcp.json` on startup and automatically connects to Bannin. You don't need to do anything else -- it just works.
 
 ---
 
-## Option C: VS Code with Copilot (MCP in Chat)
+## Step 5: Verify it's connected
 
-If you use VS Code with GitHub Copilot, Bannin works directly in Copilot Chat -- ask questions about your system while you code.
+Once Claude Code is running, type:
 
-### Step 3 - Add Bannin to VS Code
-
-**Option 1: Global (recommended -- works in every project you open):**
-
-Press `Ctrl+Shift+P` > type "Preferences: Open User Settings (JSON)" > add this inside the JSON:
-
-```json
-"mcp": {
-  "servers": {
-    "bannin": {
-      "type": "stdio",
-      "command": "python",
-      "args": ["-m", "bannin.mcp"],
-      "env": {
-        "PYTHONPATH": "/path/to/your/Bannin.dev"
-      }
-    }
-  }
-}
+```
+/mcp
 ```
 
-Replace `/path/to/your/Bannin.dev` with wherever you cloned the repo.
+You should see **"bannin"** listed with **5 tools**, all showing as connected:
 
-> **Windows**: use `"command": "C:\\Python311\\python.exe"` and double backslashes in the PYTHONPATH.
-> **Mac**: use `"command": "python3"` and a regular path like `"/Users/you/Bannin.dev"`.
+| Tool | What it does |
+|---|---|
+| `get_system_metrics` | CPU, RAM, disk, network, GPU usage |
+| `get_running_processes` | What's using your resources (friendly names like "Google Chrome" instead of chrome.exe) |
+| `predict_oom` | Will you run out of memory? Predicts crashes before they happen |
+| `get_training_status` | Progress on long-running tasks (training, builds) |
+| `get_active_alerts` | Anything that needs your attention right now |
 
-**Option 2: Per-project only:**
+**If bannin isn't listed:** Make sure `.mcp.json` is in the project root (not a subfolder). Try restarting Claude Code.
 
-Create `.vscode/mcp.json` in your project folder:
+---
 
-```json
-{
-  "servers": {
-    "bannin": {
-      "type": "stdio",
-      "command": "python3",
-      "args": ["-m", "bannin.mcp"],
-      "env": {
-        "PYTHONPATH": "/path/to/your/Bannin.dev"
-      }
-    }
-  }
-}
-```
+## Step 6: Try it out
 
-### Step 4 - Reload VS Code
+Now just talk to Claude naturally. Here are some things to try:
 
-Press `Ctrl+Shift+P` > "Developer: Reload Window"
+### Basic health check
 
-### Step 5 - Verify it's connected
-
-Click the tools icon (wrench) in the Copilot Chat input area. You should see "bannin" with 5 tools, all green checkmarks:
-
-- `get_system_metrics` - CPU, RAM, disk, network, GPU
-- `get_running_processes` - what's using your resources
-- `predict_oom` - will you run out of memory?
-- `get_training_status` - progress on long-running tasks
-- `get_active_alerts` - anything that needs attention
-
-### Step 6 - Try it out
-
-Make sure Copilot Chat is in **Agent** mode (dropdown at the top of the chat panel). Then ask:
-
+Ask:
 > "How's my system doing right now?"
-> "What's eating the most memory?"
+
+Claude calls `get_system_metrics` and tells you something like:
+
+*"Your CPU is at 25%, RAM is at 93% (7.3 GB of 7.8 GB) -- memory is getting tight. Disk is at 79%. Network looks normal."*
+
+### See what's running
+
+Ask:
+> "What's using the most resources on my machine?"
+
+You'll see friendly names instead of cryptic process names:
+
+*"Google Chrome (Browser) x26 -- 39.9% CPU, 1020 MB memory. VS Code (Code Editor) x8 -- 12.3% CPU, 450 MB. Memory Compression (System) -- 1.6 GB."*
+
+### Memory prediction
+
+Ask:
 > "Am I going to run out of memory?"
-> "Any alerts?"
 
-Copilot calls Bannin's tools and answers in the chat -- while you keep coding in the editor.
+Bannin analyzes your memory usage trend over time and tells you:
 
-> **Also works with Cursor and Windsurf** -- same `.vscode/mcp.json` config. These are VS Code forks with built-in MCP support.
+*"Memory is stable at 72%. No risk of running out."*
 
-### Want the dashboard too?
+Or if things are getting tight:
 
-Open a separate terminal and run:
+*"RAM is growing at 1.2% per minute. At this rate, you'll run out in approximately 23 minutes. Confidence: 84%."*
 
-**Mac:**
+### Check alerts
+
+Ask:
+> "Are there any active alerts?"
+
+If something's wrong:
+
+*"1 active alert: RAM HIGH -- 92% used (7.1 GB of 7.8 GB). Consider closing some applications."*
+
+If everything's fine:
+
+*"No active alerts. Your system looks healthy."*
+
+> **Tip:** Alerts are live -- they only appear when the condition is actually happening right now. If RAM drops back to normal, the alert disappears on its own.
+
+---
+
+## Step 7: Open the live dashboard (optional)
+
+Want a visual view? Open a **separate terminal** (keep Claude Code running in the first one) and start the dashboard:
+
+**Mac / Linux:**
 ```
 python3 -m bannin.cli start
 ```
@@ -253,77 +215,24 @@ python3 -m bannin.cli start
 python -m bannin.cli start
 ```
 
-Then open `http://localhost:8420` in your browser. You'll see:
-- A loading animation (Bannin's eye opening)
-- Live CPU, RAM, disk with top consumers under each
-- Process table with friendly names and category badges
-- Alerts banner (only when something is wrong)
-- "See Summary" button for a plain-English health report
-- Memory usage chart over time
-- OOM predictions and task tracking
-
-The MCP server and dashboard can run at the same time -- they don't conflict.
-
----
-
-## Option D: PowerShell / Terminal Only (No Browser Needed)
-
-If you prefer the command line, you can query Bannin's API directly after starting the agent.
-
-### Start the agent first
+Now open your browser and go to:
 
 ```
-python -m bannin.cli start
+http://localhost:8420
 ```
 
-Leave that running, then open a new terminal window.
+You'll see:
 
-### Quick health check
-```powershell
-curl http://localhost:8420/health
-```
-Returns: `{"status":"ok"}`
+- **Loading animation** -- Bannin's eye opening (takes a few seconds on first load)
+- **Live CPU, RAM, disk gauges** with the top consumers listed under each
+- **Process table** with friendly names and category badges (Browser, Code Editor, System, etc.)
+- **Alerts banner** at the top (only appears when something is actually wrong)
+- **"See Summary" button** -- click it for a plain-English health report
+- **Memory chart** -- tracks RAM usage over time so you can spot trends
+- **OOM prediction** -- shows if memory is growing and when it might run out
+- **Task tracking** -- progress bars for any long-running operations
 
-### System metrics (CPU, RAM, disk)
-```powershell
-curl http://localhost:8420/metrics
-```
-
-### See what's running (friendly names)
-```powershell
-curl http://localhost:8420/processes
-```
-
-### Plain-English summary
-```powershell
-curl http://localhost:8420/summary
-```
-Returns something like:
-```json
-{
-  "level": "busy",
-  "headline": "Your computer is a little busy right now.",
-  "details": "RAM is at 92% (7.1 GB of 7.8 GB). The biggest memory users are Memory Compression (1.6 GB), Google Chrome (871 MB).",
-  "suggestions": ["Consider closing some Google Chrome tabs to free up memory."]
-}
-```
-
-### Check active alerts
-```powershell
-curl http://localhost:8420/alerts/active
-```
-
-### OOM prediction
-```powershell
-curl http://localhost:8420/predictions/oom
-```
-
-### Open the dashboard in your browser from PowerShell
-```powershell
-Start-Process http://localhost:8420
-```
-
-> **Mac/Linux equivalent**: `open http://localhost:8420` or `xdg-open http://localhost:8420`
+> **The MCP server and dashboard can run at the same time.** They don't conflict. Claude Code uses the MCP connection while the dashboard uses the HTTP API -- both talk to the same Bannin agent.
 
 ---
 
@@ -342,23 +251,26 @@ with bannin.watch():
         model="gpt-4o",
         messages=[{"role": "user", "content": "Hello"}]
     )
-    # Check localhost:8420 - the LLM Usage card shows live tracking
+    # Check localhost:8420 -- the LLM Usage card shows live tracking
 ```
 
-Skip this section if you don't have API keys - system monitoring works without it.
+Skip this section if you don't have API keys -- system monitoring works perfectly without it.
 
 ---
 
 ## Troubleshooting
 
-**Port already in use (error 10048):**
+**"repository not found" when cloning:**
+The repo is private. Ask me (Lakshman) to add you as a collaborator on GitHub, or I can send you a zip file.
+
+**Port already in use (error 10048 or "address already in use"):**
 Another Bannin instance is running. Find and kill it:
 ```
 # Mac/Linux:
 lsof -i :8420
 kill -9 <PID>
 
-# Windows:
+# Windows PowerShell:
 netstat -ano | findstr :8420
 taskkill /PID <PID> /F
 ```
@@ -366,17 +278,23 @@ taskkill /PID <PID> /F
 **Dashboard shows "--" for everything:**
 Wait 10-15 seconds. The process scanner needs time for its first pass, especially on Windows. You'll see a "Scanning processes..." spinner until it's ready.
 
-**MCP server not connecting in Claude Code:**
-Run `/mcp` to check. If bannin isn't listed, make sure `.mcp.json` is in the project root (not a subfolder). Try restarting Claude Code.
+**MCP server not connecting:**
+1. Run `/mcp` in Claude Code to check
+2. Make sure `.mcp.json` is in the project root (not a subfolder)
+3. Make sure you used `python3` (Mac) or `python` (Windows) in the config
+4. Try restarting Claude Code completely
+
+**"No module named bannin":**
+The install didn't work. Go back to Step 2 and try again. On Windows, make sure you include `--user`. On Mac, use `pip3`.
 
 ---
 
 ## What's coming next
 
-- **Conversation health scoring** - detects when AI conversations are degrading and recommends starting fresh
-- **Browser extension** - monitors ChatGPT, Claude.ai, Gemini directly in your browser
-- **Activity logging** - searchable history of everything Bannin has observed
-- **Phone alerts** - push notifications when something needs your attention
+- **Conversation health scoring** -- detects when AI conversations are degrading and recommends starting fresh
+- **Browser extension** -- monitors ChatGPT, Claude.ai, Gemini directly in your browser
+- **Activity logging** -- searchable history of everything Bannin has observed
+- **Phone alerts** -- push notifications when something needs your attention
 
 ---
 
@@ -389,4 +307,4 @@ After trying it, I'd love to know:
 - What would make you actually keep this running?
 - What's missing?
 
-Be brutally honest - "I didn't find this useful because X" is more helpful than "looks cool!"
+Be brutally honest -- "I didn't find this useful because X" is more helpful than "looks cool!"
