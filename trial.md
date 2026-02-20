@@ -6,11 +6,16 @@ Bannin (番人, Japanese for "watchman") monitors your system health while you w
 
 **This is an early build.** The core monitoring and intelligence engine is working. Features like phone alerts, a browser extension for ChatGPT/Claude.ai, and conversation health tracking are coming. I'm looking for honest feedback on what's here.
 
-Takes about 5 minutes to set up.
+Takes about 5 minutes to set up. Pick the option that matches where you work:
+
+- **Google Colab / Kaggle** -- jump to [Option E](#option-e-google-colab--kaggle-notebooks)
+- **Local machine (Mac/Windows)** -- continue below
 
 ---
 
-## Step 1 - Clone the repo
+## Local Machine Setup (Mac / Windows)
+
+### Step 1 - Clone the repo
 
 Open your terminal and run:
 
@@ -19,7 +24,7 @@ git clone https://github.com/Lakshman-P4/Bannin.dev.git
 cd Bannin.dev
 ```
 
-## Step 2 - Install it
+### Step 2 - Install it
 
 **Mac:**
 ```
@@ -261,6 +266,119 @@ Start-Process http://localhost:8420
 
 ---
 
+## Option E: Google Colab / Kaggle Notebooks
+
+If you're working in Colab or Kaggle, you don't need to clone anything. One cell gets you started.
+
+### Step 1 - Install Bannin
+
+Create a new code cell at the top of your notebook and run:
+
+```python
+!gdown 'https://drive.google.com/uc?id=BANNIN_FILE_ID' -O bannin.whl -q && pip install -q bannin.whl
+```
+
+> Ask me for the current download link if the one above doesn't work.
+
+That's it. `gdown` is already built into Colab and Kaggle, and all dependencies (psutil, fastapi, etc.) install automatically.
+
+### Step 2 - Start monitoring
+
+Add this cell and run it:
+
+```python
+import bannin
+
+# Start Bannin - it detects Colab/Kaggle automatically
+with bannin.watch():
+    # Your existing code goes here
+    # Bannin monitors your session while it runs
+
+    # Example: check your environment
+    import requests
+    status = requests.get("http://localhost:8420/status").json()
+    print(f"Running on: {status.get('environment', 'local')}")
+    print(f"Platform: {status.get('platform')}")
+```
+
+### Step 3 - See what Bannin knows about your session
+
+In a new cell:
+
+```python
+import requests, json
+
+# Quick health check
+metrics = requests.get("http://localhost:8420/metrics").json()
+print(f"CPU: {metrics['cpu']['percent']}%")
+print(f"RAM: {metrics['memory']['percent']}% ({metrics['memory']['used_gb']:.1f} GB / {metrics['memory']['total_gb']:.1f} GB)")
+
+# Platform-specific info (Colab session time, GPU type, quotas, etc.)
+platform = requests.get("http://localhost:8420/platform").json()
+print(json.dumps(platform, indent=2))
+```
+
+### What Bannin tracks on Colab
+
+- **Session countdown** -- how long before Colab kills your session (free: 12h max, Pro: 24h)
+- **GPU assignment** -- did you get a T4? An A100? Or nothing?
+- **VRAM usage** -- how close you are to crashing from GPU memory
+- **RAM usage** -- Colab crashes your runtime if RAM goes over the limit
+- **Storage** -- temporary disk is wiped when the session ends
+- **Google Drive** -- is it mounted? (If not, you can't save anything permanently)
+- **Tier detection** -- automatically figures out if you're on Free, Pro, or Pro+
+
+### What Bannin tracks on Kaggle
+
+- **Session countdown** -- CPU: 12h limit, GPU: 9h limit
+- **GPU weekly quota** -- you get 30 hours/week of GPU time. Bannin tracks how much you've burned
+- **Dual GPU detection** -- Kaggle sometimes gives you 2x T4 GPUs (32 GB total VRAM)
+- **Output limits** -- 20 GB max, 500 files max in your output directory
+- **Internet access** -- detects when internet is disabled (competition mode)
+
+### Example: Monitor a training run
+
+```python
+import bannin
+import requests
+
+with bannin.watch():
+    # Your training code
+    from tqdm import tqdm
+    import time
+
+    for epoch in tqdm(range(10), desc="Training"):
+        time.sleep(2)  # Replace with your actual training
+
+    # After training, check what happened
+    tasks = requests.get("http://localhost:8420/tasks").json()
+    print("Tracked tasks:", json.dumps(tasks, indent=2))
+
+    # Check if memory was getting tight
+    oom = requests.get("http://localhost:8420/predictions/oom").json()
+    print("Memory prediction:", json.dumps(oom, indent=2))
+
+    # Plain-English summary
+    summary = requests.get("http://localhost:8420/summary").json()
+    print(f"\n{summary['headline']}")
+    print(summary['details'])
+```
+
+### Open the live dashboard (optional)
+
+Colab can display the dashboard inline:
+
+```python
+from IPython.display import IFrame
+IFrame('http://localhost:8420', width=800, height=600)
+```
+
+Or open it in a new tab by clicking the URL that appears when Bannin starts.
+
+> **Note**: The dashboard works best in a separate browser tab. The inline version may be small.
+
+---
+
 ## Optional: LLM API Tracking
 
 If you use OpenAI, Anthropic, or Google APIs in your own code, Bannin can track tokens, cost, latency, and context window health:
@@ -302,6 +420,19 @@ Wait 10-15 seconds. The process scanner needs time for its first pass, especiall
 
 **MCP server not connecting in Claude Code:**
 Run `/mcp` to check. If bannin isn't listed, make sure `.mcp.json` is in the project root (not a subfolder). Try restarting Claude Code.
+
+**Colab/Kaggle: "No module named bannin":**
+Make sure the install cell ran successfully. You should see no red errors. If it failed, try:
+```python
+!pip install -q psutil fastapi uvicorn
+!gdown 'https://drive.google.com/uc?id=BANNIN_FILE_ID' -O bannin.whl -q && pip install -q bannin.whl
+```
+
+**Colab/Kaggle: localhost not reachable:**
+Make sure `bannin.watch()` is running in the same cell (or a still-running cell). The API server shuts down when the `with bannin.watch():` block finishes. Keep your code inside the `with` block.
+
+**Kaggle: Install fails (no internet):**
+If you're in a competition notebook, internet access may be disabled. You won't be able to install Bannin. Switch to a regular notebook (not competition mode) to try it out.
 
 ---
 
