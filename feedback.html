@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bannin — Trial Feedback</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+    --bg-body: #040506; --bg-card: #0a0c10; --bg-input: #0d1018;
+    --cyan: #00d4ff; --cyan-dim: rgba(0,212,255,0.12);
+    --green: #00ff88; --amber: #f0a500; --red: #ff4444;
+    --text-primary: #e4ecf7; --text-secondary: #5a7090; --text-muted: #2e3d50;
+    --border: #141c28; --border-focus: rgba(0,212,255,0.3);
+    --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-mono: 'SF Mono', 'Cascadia Code', Consolas, monospace;
+}
+body { background: var(--bg-body); color: var(--text-primary); font-family: var(--font-body); line-height: 1.6; min-height: 100vh; }
+.container { max-width: 640px; margin: 0 auto; padding: 40px 24px 80px; }
+
+.header { text-align: center; margin-bottom: 48px; }
+.header-title { font-size: 28px; font-weight: 700; letter-spacing: 6px; color: var(--cyan); text-transform: uppercase; text-shadow: 0 0 20px rgba(0,212,255,0.3); }
+.header-sub { font-size: 14px; color: var(--text-secondary); margin-top: 8px; }
+.header-note { font-size: 13px; color: var(--text-muted); margin-top: 16px; line-height: 1.7; }
+
+.section { margin-bottom: 40px; }
+.section-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-secondary); margin-bottom: 20px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+
+.field { margin-bottom: 24px; }
+.field-label { display: block; font-size: 14px; font-weight: 500; color: var(--text-primary); margin-bottom: 8px; }
+.field-label .q-num { color: var(--cyan); font-family: var(--font-mono); font-size: 12px; margin-right: 6px; }
+.field-hint { font-size: 12px; color: var(--text-muted); margin-bottom: 8px; }
+
+input[type="text"], textarea {
+    width: 100%; padding: 12px 14px; background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--text-primary); font-family: var(--font-body); font-size: 14px;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease; outline: none;
+}
+input[type="text"]:focus, textarea:focus {
+    border-color: var(--border-focus); box-shadow: 0 0 0 3px rgba(0,212,255,0.06);
+}
+textarea { resize: vertical; min-height: 80px; line-height: 1.6; }
+input::placeholder, textarea::placeholder { color: var(--text-muted); }
+
+.radio-group { display: flex; flex-wrap: wrap; gap: 8px; }
+.radio-option { position: relative; }
+.radio-option input { position: absolute; opacity: 0; pointer-events: none; }
+.radio-option label {
+    display: block; padding: 8px 16px; background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: 6px; font-size: 13px; color: var(--text-secondary); cursor: pointer;
+    transition: all 0.2s ease; user-select: none;
+}
+.radio-option input:checked + label {
+    border-color: var(--cyan); color: var(--cyan); background: var(--cyan-dim);
+    box-shadow: 0 0 8px rgba(0,212,255,0.1);
+}
+.radio-option label:hover { border-color: rgba(0,212,255,0.15); color: var(--text-primary); }
+
+.scale-group { display: flex; gap: 6px; align-items: center; }
+.scale-group .scale-label { font-size: 11px; color: var(--text-muted); min-width: 60px; }
+.scale-group .scale-label:last-child { text-align: right; }
+.scale-option { position: relative; flex: 1; }
+.scale-option input { position: absolute; opacity: 0; pointer-events: none; }
+.scale-option label {
+    display: flex; align-items: center; justify-content: center; height: 40px;
+    background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px;
+    font-size: 14px; font-weight: 600; color: var(--text-muted); cursor: pointer;
+    transition: all 0.2s ease;
+}
+.scale-option input:checked + label {
+    border-color: var(--cyan); color: var(--cyan); background: var(--cyan-dim);
+}
+.scale-option label:hover { border-color: rgba(0,212,255,0.15); color: var(--text-secondary); }
+
+.checkbox-group { display: flex; flex-wrap: wrap; gap: 8px; }
+.checkbox-option { position: relative; }
+.checkbox-option input { position: absolute; opacity: 0; pointer-events: none; }
+.checkbox-option label {
+    display: block; padding: 8px 14px; background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: 6px; font-size: 13px; color: var(--text-secondary); cursor: pointer;
+    transition: all 0.2s ease; user-select: none;
+}
+.checkbox-option input:checked + label {
+    border-color: var(--cyan); color: var(--cyan); background: var(--cyan-dim);
+}
+.checkbox-option label:hover { border-color: rgba(0,212,255,0.15); color: var(--text-primary); }
+
+.coming-soon {
+    background: rgba(0,212,255,0.03); border: 1px solid rgba(0,212,255,0.08);
+    border-radius: 10px; padding: 20px; margin-bottom: 20px; font-size: 13px;
+    color: var(--text-secondary); line-height: 1.8;
+}
+.coming-soon strong { color: var(--text-primary); }
+.coming-soon .cs-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--cyan); margin-bottom: 12px; font-weight: 600; }
+
+.submit-btn {
+    display: block; width: 100%; padding: 14px; background: transparent;
+    border: 1px solid var(--cyan); border-radius: 8px; color: var(--cyan);
+    font-family: var(--font-body); font-size: 15px; font-weight: 600;
+    letter-spacing: 1px; cursor: pointer; transition: all 0.3s ease;
+}
+.submit-btn:hover { background: var(--cyan-dim); box-shadow: 0 0 18px rgba(0,212,255,0.15); transform: translateY(-1px); }
+.submit-btn:active { transform: translateY(0); }
+.submit-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+.thank-you { display: none; text-align: center; padding: 60px 20px; }
+.thank-you.visible { display: block; }
+.thank-you h2 { font-size: 24px; color: var(--cyan); margin-bottom: 12px; }
+.thank-you p { color: var(--text-secondary); font-size: 15px; }
+
+.form-content.hidden { display: none; }
+
+.error-msg { color: var(--red); font-size: 12px; margin-top: 6px; display: none; }
+.field.invalid input, .field.invalid textarea { border-color: rgba(255,68,68,0.4); }
+.field.invalid .error-msg { display: block; }
+</style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <div class="header-title">Bannin</div>
+        <div class="header-sub">Trial Feedback</div>
+        <div class="header-note">Thanks for trying Bannin. This takes under 3 minutes.<br>Your feedback directly shapes what gets built next.</div>
+    </div>
+
+    <form id="feedback-form" class="form-content" onsubmit="return submitForm(event)">
+
+        <div class="section">
+            <div class="section-title">About You</div>
+
+            <div class="field" id="f-name">
+                <label class="field-label"><span class="q-num">01</span> What's your name?</label>
+                <input type="text" name="name" placeholder="First name is fine" required>
+                <div class="error-msg">Please enter your name.</div>
+            </div>
+
+            <div class="field">
+                <label class="field-label"><span class="q-num">02</span> Which guide did you follow?</label>
+                <div class="radio-group">
+                    <div class="radio-option"><input type="radio" name="guide" id="g1" value="Claude Code" required><label for="g1">Claude Code</label></div>
+                    <div class="radio-option"><input type="radio" name="guide" id="g2" value="Colab / Kaggle"><label for="g2">Colab / Kaggle</label></div>
+                    <div class="radio-option"><input type="radio" name="guide" id="g3" value="VS Code / Cursor / Editor"><label for="g3">VS Code / Cursor</label></div>
+                    <div class="radio-option"><input type="radio" name="guide" id="g4" value="Terminal / PowerShell"><label for="g4">Terminal</label></div>
+                </div>
+            </div>
+
+            <div class="field">
+                <label class="field-label"><span class="q-num">03</span> What OS are you on?</label>
+                <input type="text" name="os" placeholder="e.g. Windows 11, MacBook Pro M2, Ubuntu 22.04">
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-title">Setup</div>
+
+            <div class="field">
+                <label class="field-label"><span class="q-num">04</span> How was the setup process?</label>
+                <div class="scale-group">
+                    <span class="scale-label">Painful</span>
+                    <div class="scale-option"><input type="radio" name="setup_score" id="s1" value="1" required><label for="s1">1</label></div>
+                    <div class="scale-option"><input type="radio" name="setup_score" id="s2" value="2"><label for="s2">2</label></div>
+                    <div class="scale-option"><input type="radio" name="setup_score" id="s3" value="3"><label for="s3">3</label></div>
+                    <div class="scale-option"><input type="radio" name="setup_score" id="s4" value="4"><label for="s4">4</label></div>
+                    <div class="scale-option"><input type="radio" name="setup_score" id="s5" value="5"><label for="s5">5</label></div>
+                    <span class="scale-label">Effortless</span>
+                </div>
+            </div>
+
+            <div class="field">
+                <label class="field-label"><span class="q-num">05</span> Where did you get stuck, if anywhere?</label>
+                <textarea name="setup_stuck" placeholder="Skip if setup was smooth"></textarea>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-title">Using It</div>
+
+            <div class="field">
+                <label class="field-label"><span class="q-num">06</span> Did Bannin tell you something about your machine you didn't already know?</label>
+                <div class="radio-group">
+                    <div class="radio-option"><input type="radio" name="learned" id="l1" value="Yes" required><label for="l1">Yes</label></div>
+                    <div class="radio-option"><input type="radio" name="learned" id="l2" value="No"><label for="l2">No</label></div>
+                </div>
+                <div style="margin-top: 10px;">
+                    <textarea name="learned_what" placeholder="If yes, what did you learn?" rows="2"></textarea>
+                </div>
+            </div>
+
+            <div class="field">
+                <label class="field-label"><span class="q-num">07</span> What did you think of the dashboard?</label>
+                <div class="field-hint">Design, clarity, anything that stood out or confused you.</div>
+                <textarea name="dashboard_thoughts" placeholder="First impressions, what you liked, what felt off..."></textarea>
+            </div>
+
+            <div class="field">
+                <label class="field-label"><span class="q-num">08</span> Did anything break or slow your machine down?</label>
+                <textarea name="issues" placeholder="Errors, slowdowns, or 'everything worked fine'" rows="2"></textarea>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-title">The Real Questions</div>
+
+            <div class="field">
+                <label class="field-label"><span class="q-num">09</span> Does this feel like something you'd actually keep running?</label>
+                <div class="radio-group">
+                    <div class="radio-option"><input type="radio" name="keep_running" id="k1" value="Yes" required><label for="k1">Yes</label></div>
+                    <div class="radio-option"><input type="radio" name="keep_running" id="k2" value="Maybe"><label for="k2">Maybe</label></div>
+                    <div class="radio-option"><input type="radio" name="keep_running" id="k3" value="No"><label for="k3">No</label></div>
+                </div>
+                <div style="margin-top: 10px;">
+                    <textarea name="keep_running_why" placeholder="Why or why not?" rows="2"></textarea>
+                </div>
+            </div>
+
+            <div class="field">
+                <label class="field-label"><span class="q-num">10</span> What's the single thing that would make you install this permanently?</label>
+                <textarea name="killer_feature" placeholder="The feature or change that would tip you over..."></textarea>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-title">What's Coming</div>
+
+            <div class="coming-soon">
+                <div class="cs-title">On the roadmap</div>
+                <strong>LLM Conversation Health</strong> -- Bannin monitors your AI chats and tells you when they're degrading. Detects slowdowns, scores health 0-100, and helps you start fresh carrying your context forward.<br><br>
+                <strong>Browser Extension</strong> -- Chrome extension for ChatGPT, Claude, and Gemini. No Python needed. Token tracking, latency warnings, "start new chat" with context transfer.<br><br>
+                <strong>Activity History</strong> -- Full analytics: "What happened while I was away?" Searchable log of every alert, metric spike, and LLM cost.<br><br>
+                <strong>Shareable Dashboard</strong> -- Send a link, see your system live in the browser.<br><br>
+                <strong>Phone Alerts</strong> -- "Training finished." "Colab disconnecting." "You've spent $15 today." Push notifications for everything Bannin watches.<br><br>
+                <strong>Smart Actions</strong> -- Pause training, save checkpoint, start new chat -- from your phone.
+            </div>
+
+            <div class="field">
+                <label class="field-label"><span class="q-num">11</span> Which upcoming features excite you most? (pick up to 2)</label>
+                <div class="checkbox-group">
+                    <div class="checkbox-option"><input type="checkbox" name="excited" id="e1" value="LLM Conversation Health"><label for="e1">LLM Conversation Health</label></div>
+                    <div class="checkbox-option"><input type="checkbox" name="excited" id="e2" value="Browser Extension"><label for="e2">Browser Extension</label></div>
+                    <div class="checkbox-option"><input type="checkbox" name="excited" id="e3" value="Activity History"><label for="e3">Activity History</label></div>
+                    <div class="checkbox-option"><input type="checkbox" name="excited" id="e4" value="Shareable Dashboard"><label for="e4">Shareable Dashboard</label></div>
+                    <div class="checkbox-option"><input type="checkbox" name="excited" id="e5" value="Phone Alerts"><label for="e5">Phone Alerts</label></div>
+                    <div class="checkbox-option"><input type="checkbox" name="excited" id="e6" value="Smart Actions"><label for="e6">Smart Actions</label></div>
+                </div>
+            </div>
+
+            <div class="field">
+                <label class="field-label"><span class="q-num">12</span> Anything else?</label>
+                <textarea name="anything_else" placeholder="Optional -- whatever's on your mind" rows="2"></textarea>
+            </div>
+        </div>
+
+        <button type="submit" class="submit-btn" id="submit-btn">Submit Feedback</button>
+    </form>
+
+    <div class="thank-you" id="thank-you">
+        <h2>Thanks.</h2>
+        <p>Your feedback is logged and will directly shape what gets built next.</p>
+    </div>
+</div>
+
+<script>
+// --- Configuration ---
+// Set this to your Google Apps Script web app URL after deploying the script.
+// Leave empty to use clipboard fallback mode.
+var SUBMIT_URL = "";
+
+function getFormData() {
+    var form = document.getElementById("feedback-form");
+    var data = {};
+    data.name = form.querySelector('[name="name"]').value.trim();
+    data.guide = (form.querySelector('[name="guide"]:checked') || {}).value || "";
+    data.os = form.querySelector('[name="os"]').value.trim();
+    data.setup_score = (form.querySelector('[name="setup_score"]:checked') || {}).value || "";
+    data.setup_stuck = form.querySelector('[name="setup_stuck"]').value.trim();
+    data.learned = (form.querySelector('[name="learned"]:checked') || {}).value || "";
+    data.learned_what = form.querySelector('[name="learned_what"]').value.trim();
+    data.dashboard_thoughts = form.querySelector('[name="dashboard_thoughts"]').value.trim();
+    data.issues = form.querySelector('[name="issues"]').value.trim();
+    data.keep_running = (form.querySelector('[name="keep_running"]:checked') || {}).value || "";
+    data.keep_running_why = form.querySelector('[name="keep_running_why"]').value.trim();
+    data.killer_feature = form.querySelector('[name="killer_feature"]').value.trim();
+    var excited = [];
+    form.querySelectorAll('[name="excited"]:checked').forEach(function(cb) { excited.push(cb.value); });
+    data.excited = excited.join(", ");
+    data.anything_else = form.querySelector('[name="anything_else"]').value.trim();
+    data.submitted_at = new Date().toISOString();
+    return data;
+}
+
+function validateCheckboxLimit() {
+    var checked = document.querySelectorAll('[name="excited"]:checked');
+    if (checked.length > 2) {
+        var boxes = document.querySelectorAll('[name="excited"]');
+        boxes.forEach(function(cb) {
+            if (!cb.checked) cb.disabled = true;
+        });
+    } else {
+        var boxes = document.querySelectorAll('[name="excited"]');
+        boxes.forEach(function(cb) { cb.disabled = false; });
+    }
+}
+document.querySelectorAll('[name="excited"]').forEach(function(cb) {
+    cb.addEventListener("change", validateCheckboxLimit);
+});
+
+async function submitForm(e) {
+    e.preventDefault();
+    var btn = document.getElementById("submit-btn");
+    btn.disabled = true;
+    btn.textContent = "Submitting...";
+
+    var data = getFormData();
+
+    if (SUBMIT_URL) {
+        try {
+            await fetch(SUBMIT_URL, {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify(data),
+                mode: "no-cors",
+            });
+        } catch (err) {
+            // no-cors won't give us a readable response, but the data is sent
+        }
+    } else {
+        // Fallback: copy JSON to clipboard
+        try {
+            await navigator.clipboard.writeText(JSON.stringify(data, null, 2));
+        } catch (err) {
+            // Clipboard not available, just proceed
+        }
+    }
+
+    document.getElementById("feedback-form").classList.add("hidden");
+    document.getElementById("thank-you").classList.add("visible");
+    return false;
+}
+</script>
+
+</body>
+</html>
