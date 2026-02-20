@@ -146,6 +146,13 @@ body { background: var(--bg-body); color: var(--text-primary); font-family: var(
 .detected-task-name { font-size: 14px; font-weight: 500; flex: 1; }
 .detected-task-detail { font-size: 11px; color: var(--text-secondary); font-family: var(--font-mono); }
 .detected-task-via { font-size: 11px; color: var(--text-muted); }
+.summary-loader { display: flex; flex-direction: column; align-items: center; padding: 24px 0; gap: 14px; }
+.summary-scanner { width: 48px; height: 48px; position: relative; }
+.summary-scanner-ring { width: 48px; height: 48px; border-radius: 50%; border: 2px solid rgba(0,212,255,0.15); border-top-color: var(--cyan); animation: scanner-spin 1s linear infinite; box-shadow: 0 0 16px rgba(0,212,255,0.2); }
+.summary-scanner-dot { position: absolute; top: 50%; left: 50%; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 10px var(--cyan); animation: scanner-pulse 1s ease-in-out infinite; }
+@keyframes scanner-spin { to { transform: rotate(360deg); } }
+@keyframes scanner-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(0.6); } }
+.summary-loader-text { font-size: 12px; color: var(--text-secondary); letter-spacing: 1px; text-transform: uppercase; animation: scanner-pulse 1.5s ease-in-out infinite; }
 @media (max-width: 900px) {
     .metric-cards, .metric-cards.no-gpu { grid-template-columns: repeat(2,1fr); }
     .two-col, .bottom-row { grid-template-columns: 1fr; }
@@ -362,6 +369,21 @@ function initChart() {
 var gpuVisible = false;
 var summaryOpen = false;
 
+function showSummaryLoader() {
+    var content = document.getElementById("summary-content");
+    content.style.display = "";
+    document.getElementById("summary-headline").textContent = "";
+    document.getElementById("summary-details").textContent = "";
+    document.getElementById("summary-suggestions").innerHTML = "";
+    document.getElementById("summary-suggestions").style.display = "none";
+    content.innerHTML = '<div class="summary-loader"><div class="summary-scanner"><div class="summary-scanner-ring"></div><div class="summary-scanner-dot"></div></div><div class="summary-loader-text">Analyzing system\u2026</div></div>';
+}
+
+function restoreSummaryContent() {
+    var content = document.getElementById("summary-content");
+    content.innerHTML = '<div class="summary-headline" id="summary-headline"></div><div class="summary-details" id="summary-details"></div><ul class="summary-suggestions" id="summary-suggestions"></ul>';
+}
+
 function toggleSummary() {
     var content = document.getElementById("summary-content");
     var btn = document.getElementById("summary-toggle-btn");
@@ -371,8 +393,11 @@ function toggleSummary() {
         btn.textContent = "Hide Summary";
         btn.classList.add("active");
         refreshBtn.style.display = "";
-        content.style.display = "";
-        refreshSummary();
+        showSummaryLoader();
+        fetchJSON(BASE + "/summary").then(function(data) {
+            restoreSummaryContent();
+            if (data) updateSummary(data);
+        });
     } else {
         btn.textContent = "See Summary";
         btn.classList.remove("active");
@@ -385,14 +410,16 @@ function refreshSummary() {
     var refreshBtn = document.getElementById("summary-refresh-btn");
     refreshBtn.classList.add("spinning");
     setTimeout(function() { refreshBtn.classList.remove("spinning"); }, 600);
+    showSummaryLoader();
     fetchJSON(BASE + "/summary").then(function(data) {
+        restoreSummaryContent();
         if (data) updateSummary(data);
     });
 }
 
 function updateSummary(data) {
     var box = document.getElementById("summary-box");
-    if (\!data || \!data.level) { box.style.display = "none"; return; }
+    if (!data || !data.level) { box.style.display = "none"; return; }
     box.style.display = "";
     box.className = "summary-box " + data.level;
     document.getElementById("summary-headline").textContent = data.headline || "";
@@ -409,8 +436,8 @@ function updateSummary(data) {
 
 function updateBreakdown(elementId, items) {
     var el = document.getElementById(elementId);
-    if (\!el) return;
-    if (\!items || items.length === 0) { el.innerHTML = ""; return; }
+    if (!el) return;
+    if (!items || items.length === 0) { el.innerHTML = ""; return; }
     el.innerHTML = items.map(function(item) {
         return '<div class="metric-breakdown-row"><span class="metric-breakdown-name">' + (item.name || "--") + '</span><span class="metric-breakdown-val">' + (item.display || "--") + '</span></div>';
     }).join("");
@@ -448,11 +475,6 @@ function updateSystemCards(metrics) {
         document.getElementById("gpu-detail").textContent = g.name || "GPU";
         gpuCard.style.display = ""; cc.classList.remove("no-gpu"); gpuVisible = true;
     } else { gpuCard.style.display = "none"; cc.classList.add("no-gpu"); gpuVisible = false; }
-    var bd = metrics.resource_breakdown;
-    if (bd) {
-        updateBreakdown("cpu-breakdown", bd.cpu);
-        updateBreakdown("ram-breakdown", bd.ram);
-    }
 }
 
 function updateAlertsBanner(data) {
@@ -585,6 +607,12 @@ function updateProcesses(data) {
         }
         return '<tr><td class="proc-name" title="' + name + '">' + name + instances + '</td><td>' + cat + '</td><td>' + (p.cpu_percent != null ? p.cpu_percent.toFixed(1) + '%' : "--") + '</td><td>' + ram + '</td></tr>';
     }).join("");
+    // Update breakdown under CPU/RAM cards (comes from /processes now, not /metrics)
+    var bd = data.resource_breakdown;
+    if (bd) {
+        updateBreakdown("cpu-breakdown", bd.cpu);
+        updateBreakdown("ram-breakdown", bd.ram);
+    }
 }
 
 function updatePlatform(data) {

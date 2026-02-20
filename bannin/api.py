@@ -10,7 +10,7 @@ from bannin.core.collector import get_all_metrics
 from bannin.core.gpu import get_gpu_metrics, is_gpu_available
 from bannin.core.process import (
     get_process_count, get_top_processes,
-    get_grouped_processes, get_resource_breakdown, get_detected_tasks,
+    get_grouped_processes, get_resource_breakdown,
 )
 from bannin.platforms.detector import detect_platform
 
@@ -38,9 +38,18 @@ app.add_middleware(
 
 @app.on_event("startup")
 def _on_startup():
-    """Start background services when the API server boots."""
+    """Start background services and pre-warm process cache on boot."""
     from bannin.intelligence.history import MetricHistory
     MetricHistory.get().start()
+    # Pre-warm process data in background so first request is instant
+    import threading
+    threading.Thread(target=_prewarm, daemon=True).start()
+
+
+def _prewarm():
+    """Start the background process scanner."""
+    from bannin.core.process import start_background_scanner
+    start_background_scanner(interval=15)
 
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
@@ -74,7 +83,6 @@ def metrics():
     data = get_all_metrics()
     data["gpu"] = get_gpu_metrics()
     data["environment"] = _detected_platform
-    data["resource_breakdown"] = get_resource_breakdown()
     return data
 
 
@@ -83,6 +91,7 @@ def processes(limit: int = 15):
     return {
         "summary": get_process_count(),
         "top_processes": get_grouped_processes(limit=limit),
+        "resource_breakdown": get_resource_breakdown(),
     }
 
 
@@ -174,11 +183,9 @@ def alerts_active():
 
 @app.get("/tasks")
 def tasks():
-    """Tracked tasks — training progress, ETAs, detected running scripts."""
+    """Tracked tasks — training progress and ETAs."""
     from bannin.intelligence.progress import ProgressTracker
-    data = ProgressTracker.get().get_tasks()
-    data["detected_tasks"] = get_detected_tasks()
-    return data
+    return ProgressTracker.get().get_tasks()
 
 
 @app.get("/tasks/{task_id}")
