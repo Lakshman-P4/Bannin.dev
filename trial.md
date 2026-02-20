@@ -163,11 +163,85 @@ Type `/mcp` -- you should see "bannin" listed with 5 tools. Then just ask natura
 
 ---
 
-## Option C: VS Code / Any Editor Users (Dashboard Only)
+## Option C: VS Code with Copilot (MCP in Chat)
 
-### Step 3 - Start Bannin
+If you use VS Code with GitHub Copilot, Bannin works directly in Copilot Chat -- ask questions about your system while you code.
 
-Open a terminal and run:
+### Step 3 - Add Bannin to VS Code
+
+**Option 1: Global (recommended -- works in every project you open):**
+
+Press `Ctrl+Shift+P` > type "Preferences: Open User Settings (JSON)" > add this inside the JSON:
+
+```json
+"mcp": {
+  "servers": {
+    "bannin": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "bannin.mcp"],
+      "env": {
+        "PYTHONPATH": "/path/to/your/Bannin.dev"
+      }
+    }
+  }
+}
+```
+
+Replace `/path/to/your/Bannin.dev` with wherever you cloned the repo.
+
+> **Windows**: use `"command": "C:\\Python311\\python.exe"` and double backslashes in the PYTHONPATH.
+> **Mac**: use `"command": "python3"` and a regular path like `"/Users/you/Bannin.dev"`.
+
+**Option 2: Per-project only:**
+
+Create `.vscode/mcp.json` in your project folder:
+
+```json
+{
+  "servers": {
+    "bannin": {
+      "type": "stdio",
+      "command": "python3",
+      "args": ["-m", "bannin.mcp"],
+      "env": {
+        "PYTHONPATH": "/path/to/your/Bannin.dev"
+      }
+    }
+  }
+}
+```
+
+### Step 4 - Reload VS Code
+
+Press `Ctrl+Shift+P` > "Developer: Reload Window"
+
+### Step 5 - Verify it's connected
+
+Click the tools icon (wrench) in the Copilot Chat input area. You should see "bannin" with 5 tools, all green checkmarks:
+
+- `get_system_metrics` - CPU, RAM, disk, network, GPU
+- `get_running_processes` - what's using your resources
+- `predict_oom` - will you run out of memory?
+- `get_training_status` - progress on long-running tasks
+- `get_active_alerts` - anything that needs attention
+
+### Step 6 - Try it out
+
+Make sure Copilot Chat is in **Agent** mode (dropdown at the top of the chat panel). Then ask:
+
+> "How's my system doing right now?"
+> "What's eating the most memory?"
+> "Am I going to run out of memory?"
+> "Any alerts?"
+
+Copilot calls Bannin's tools and answers in the chat -- while you keep coding in the editor.
+
+> **Also works with Cursor and Windsurf** -- same `.vscode/mcp.json` config. These are VS Code forks with built-in MCP support.
+
+### Want the dashboard too?
+
+Open a separate terminal and run:
 
 **Mac:**
 ```
@@ -179,26 +253,16 @@ python3 -m bannin.cli start
 python -m bannin.cli start
 ```
 
-You should see:
-```
-Bannin agent v0.1.0
-Dashboard: http://127.0.0.1:8420
-API docs:  http://127.0.0.1:8420/docs
-```
+Then open `http://localhost:8420` in your browser. You'll see:
+- A loading animation (Bannin's eye opening)
+- Live CPU, RAM, disk with top consumers under each
+- Process table with friendly names and category badges
+- Alerts banner (only when something is wrong)
+- "See Summary" button for a plain-English health report
+- Memory usage chart over time
+- OOM predictions and task tracking
 
-### Step 4 - Open the dashboard
-
-Go to `http://localhost:8420` in your browser.
-
-Wait for Bannin's eye to open (the loading animation), then you'll see the full dashboard with live metrics updating every few seconds.
-
-### Step 5 - Try the summary
-
-Click "See Summary" on the dashboard. You'll get a plain-English report like:
-
-> **Your computer is a little busy right now.**
-> RAM is at 85%. The biggest memory users are Google Chrome (1.0 GB), Claude Desktop (773 MB), Memory Compression (1.6 GB).
-> *Suggestion: Consider closing some Google Chrome tabs to free up memory.*
+The MCP server and dashboard can run at the same time -- they don't conflict.
 
 ---
 
