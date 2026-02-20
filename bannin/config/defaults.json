@@ -144,7 +144,7 @@
           "operator": ">=",
           "threshold": 95,
           "severity": "critical",
-          "message": "RAM CRITICAL: {value}% used — system may crash",
+          "message": "RAM CRITICAL: {value}% used - system may crash",
           "cooldown_seconds": 60,
           "platforms": ["all"]
         },
@@ -164,7 +164,7 @@
           "operator": ">=",
           "threshold": 95,
           "severity": "critical",
-          "message": "DISK CRITICAL: {value}% used — may run out of space",
+          "message": "DISK CRITICAL: {value}% used - may run out of space",
           "cooldown_seconds": 120,
           "platforms": ["all"]
         },
@@ -184,7 +184,7 @@
           "operator": ">=",
           "threshold": 95,
           "severity": "critical",
-          "message": "GPU VRAM CRITICAL: {value}% — OOM risk",
+          "message": "GPU VRAM CRITICAL: {value}% - OOM risk",
           "cooldown_seconds": 60,
           "platforms": ["all"]
         },
@@ -266,7 +266,7 @@
           "operator": ">=",
           "threshold": 75,
           "severity": "warning",
-          "message": "CONTEXT WINDOW: {value}% used — conversation getting long",
+          "message": "CONTEXT WINDOW: {value}% used - conversation getting long",
           "cooldown_seconds": 120,
           "platforms": ["all"]
         },
@@ -276,7 +276,7 @@
           "operator": ">=",
           "threshold": 90,
           "severity": "critical",
-          "message": "CONTEXT WINDOW CRITICAL: {value}% used — consider starting a new chat",
+          "message": "CONTEXT WINDOW CRITICAL: {value}% used - consider starting a new chat",
           "cooldown_seconds": 60,
           "platforms": ["all"]
         },
@@ -326,7 +326,7 @@
           "operator": "<=",
           "threshold": 40,
           "severity": "warning",
-          "message": "CONVERSATION HEALTH LOW: Score {value}/100 — consider starting a new chat",
+          "message": "CONVERSATION HEALTH LOW: Score {value}/100 - consider starting a new chat",
           "cooldown_seconds": 300,
           "platforms": ["all"]
         },
@@ -336,7 +336,7 @@
           "operator": "<=",
           "threshold": 20,
           "severity": "critical",
-          "message": "CONVERSATION HEALTH CRITICAL: Score {value}/100 — this chat is severely degraded",
+          "message": "CONVERSATION HEALTH CRITICAL: Score {value}/100 - this chat is severely degraded",
           "cooldown_seconds": 120,
           "platforms": ["all"]
         }

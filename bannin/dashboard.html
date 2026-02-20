@@ -164,9 +164,66 @@ body { background: var(--bg-body); color: var(--text-primary); font-family: var(
     .header-right { justify-content: center; }
     body { padding: 10px; }
 }
+#loading-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--bg-body); z-index: 9999; display: flex; align-items: center; justify-content: center; transition: opacity 0.8s ease-out; }
+#loading-overlay.fade-out { opacity: 0; pointer-events: none; }
+.loading-content { display: flex; flex-direction: column; align-items: center; gap: 24px; }
+.bannin-eye { animation: eye-glow 2s ease-in-out infinite; }
+@keyframes eye-glow { 0%,100% { filter: drop-shadow(0 0 30px rgba(0,51,170,0.5)) drop-shadow(0 0 10px rgba(0,212,255,0.3)); } 50% { filter: drop-shadow(0 0 60px rgba(0,51,170,0.8)) drop-shadow(0 0 25px rgba(0,212,255,0.6)); } }
+.loading-brand { font-size: 38px; font-weight: 700; letter-spacing: 14px; color: var(--cyan); text-shadow: 0 0 30px rgba(0,212,255,0.5); }
+.loading-tagline { font-size: 14px; color: var(--text-secondary); font-style: italic; letter-spacing: 1px; opacity: 0.7; }
+.loading-sub { font-size: 12px; color: var(--text-muted); letter-spacing: 2px; text-transform: uppercase; animation: scanner-pulse 1.5s ease-in-out infinite; margin-top: 8px; }
 </style>
 </head>
 <body>
+<div id="loading-overlay">
+  <div class="loading-content">
+    <svg class="bannin-eye" viewBox="0 0 300 200" width="280" height="187">
+      <defs>
+        <radialGradient id="orb-glow" cx="50%" cy="50%" fx="50%" fy="50%">
+          <stop offset="0%" stop-color="#0044cc" stop-opacity="0.7"/>
+          <stop offset="40%" stop-color="#0033aa" stop-opacity="0.3"/>
+          <stop offset="70%" stop-color="#001a66" stop-opacity="0.1"/>
+          <stop offset="100%" stop-color="#000" stop-opacity="0"/>
+        </radialGradient>
+        <radialGradient id="orb-body" cx="42%" cy="38%">
+          <stop offset="0%" stop-color="#1a2a45"/>
+          <stop offset="40%" stop-color="#0f1a2e"/>
+          <stop offset="80%" stop-color="#080e1a"/>
+          <stop offset="100%" stop-color="#040810"/>
+        </radialGradient>
+        <radialGradient id="iris-fill" cx="50%" cy="50%">
+          <stop offset="0%" stop-color="rgba(0,212,255,0.1)"/>
+          <stop offset="100%" stop-color="rgba(0,212,255,0.02)"/>
+        </radialGradient>
+        <filter id="iris-bloom"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+        <clipPath id="eye-clip"><rect id="eye-clip-rect" x="0" y="88" width="300" height="24"/></clipPath>
+      </defs>
+      <!-- Horizontal glow spread (always visible, bleeds through slit) -->
+      <ellipse cx="150" cy="100" rx="145" ry="55" fill="url(#orb-glow)" opacity="0.6"/>
+      <!-- Clipped group: revealed by opening eye -->
+      <g clip-path="url(#eye-clip)">
+        <!-- Orb sphere -->
+        <circle cx="150" cy="100" r="58" fill="url(#orb-body)" stroke="#0a1525" stroke-width="1"/>
+        <!-- Subtle sphere edge highlight -->
+        <circle cx="150" cy="100" r="57" fill="none" stroke="rgba(0,51,170,0.15)" stroke-width="1"/>
+        <!-- Iris ring with bloom -->
+        <g filter="url(#iris-bloom)">
+          <circle cx="150" cy="100" r="28" fill="none" stroke="#00d4ff" stroke-width="2.5"/>
+        </g>
+        <!-- Inner iris subtle fill -->
+        <circle cx="150" cy="100" r="28" fill="url(#iris-fill)"/>
+        <!-- Pupil -->
+        <circle cx="150" cy="100" r="11" fill="#030608"/>
+        <!-- Highlight reflection -->
+        <circle cx="139" cy="88" r="4" fill="rgba(255,255,255,0.18)"/>
+        <circle cx="145" cy="92" r="2" fill="rgba(255,255,255,0.08)"/>
+      </g>
+    </svg>
+    <div class="loading-brand">BANNIN</div>
+    <div class="loading-tagline">I watch so you don't have to</div>
+    <div class="loading-sub" id="loading-status">Initializing&hellip;</div>
+  </div>
+</div>
 <div class="dashboard">
 
     <div class="header">
@@ -260,7 +317,7 @@ body { background: var(--bg-body); color: var(--text-primary); font-family: var(
             <div class="card-title">Top Processes</div>
             <table class="proc-table">
                 <thead><tr><th>Application</th><th>Category</th><th>CPU %</th><th>RAM</th></tr></thead>
-                <tbody id="proc-tbody"><tr><td colspan="4" class="empty-state">Loading&hellip;</td></tr></tbody>
+                <tbody id="proc-tbody"><tr><td colspan="4"><div class="summary-loader"><div class="summary-scanner"><div class="summary-scanner-ring"></div><div class="summary-scanner-dot"></div></div><div class="summary-loader-text">Scanning processes&hellip;</div></div></td></tr></tbody>
             </table>
         </div>
         <div class="card">
@@ -445,6 +502,7 @@ function updateBreakdown(elementId, items) {
 
 function updateSystemCards(metrics) {
     if (!metrics) return;
+    if (!_loadReady.metrics) { _loadReady.metrics = true; checkDataReady(); }
     var cpuPct = metrics.cpu ? (metrics.cpu.percent || 0) : 0;
     document.getElementById("cpu-value").textContent = cpuPct.toFixed(0) + "%";
     var cpuBar = document.getElementById("cpu-bar");
@@ -596,7 +654,10 @@ function updateProcesses(data) {
     var tbody = document.getElementById("proc-tbody");
     var procs = Array.isArray(data) ? data : (data && data.top_processes ? data.top_processes : []);
     procs = procs.slice(0, 8);
-    if (procs.length === 0) { tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No process data</td></tr>'; return; }
+    if (procs.length === 0) { return; }
+    var allZero = procs.every(function(p) { return (p.cpu_percent || 0) === 0 && (p.memory_mb || 0) === 0; });
+    if (allZero) { return; }
+    if (!_loadReady.processes) { _loadReady.processes = true; checkDataReady(); }
     tbody.innerHTML = procs.map(function(p) {
         var name = p.name || "--";
         var instances = (p.instance_count && p.instance_count > 1) ? '<span class="proc-instances">\u00d7' + p.instance_count + '</span>' : '';
@@ -655,6 +716,48 @@ function updateMemoryChart(data) {
         } else { memChart.data.datasets[1].data = gpuData; }
     } else if (memChart.data.datasets.length > 1) { memChart.data.datasets.splice(1, 1); }
     memChart.update("none");
+}
+
+// --- Loading eye animation ---
+var _loadReady = { metrics: false, processes: false };
+var _eyeOpened = false;
+
+function checkDataReady() {
+    if (_loadReady.metrics && _loadReady.processes && !_eyeOpened) openBanninEye();
+}
+
+// Fallback: open after 15s even if processes haven't loaded
+setTimeout(function() { if (!_eyeOpened) { _loadReady.metrics = true; _loadReady.processes = true; openBanninEye(); } }, 15000);
+
+function openBanninEye() {
+    if (_eyeOpened) return;
+    _eyeOpened = true;
+    var status = document.getElementById("loading-status");
+    if (status) status.textContent = "Ready";
+    var eye = document.querySelector(".bannin-eye");
+    if (eye) { eye.style.animation = "none"; eye.style.filter = "drop-shadow(0 0 50px rgba(0,51,170,0.7)) drop-shadow(0 0 20px rgba(0,212,255,0.5))"; }
+    var clipRect = document.getElementById("eye-clip-rect");
+    if (!clipRect) { removeSplash(); return; }
+    var start = null;
+    // Clip rect opens: y 88→0, height 24→200
+    function animate(ts) {
+        if (!start) start = ts;
+        var t = Math.min((ts - start) / 1000, 1);
+        var ease = 1 - Math.pow(1 - t, 3);
+        var y = 88 - 88 * ease;
+        var h = 24 + 176 * ease;
+        clipRect.setAttribute("y", y);
+        clipRect.setAttribute("height", h);
+        if (t < 1) requestAnimationFrame(animate); else setTimeout(removeSplash, 600);
+    }
+    requestAnimationFrame(animate);
+}
+
+function removeSplash() {
+    var ov = document.getElementById("loading-overlay");
+    if (!ov) return;
+    ov.classList.add("fade-out");
+    setTimeout(function() { ov.remove(); }, 600);
 }
 
 var fastTimer = null, mediumTimer = null, slowTimer = null;

@@ -6,11 +6,14 @@ CPU, we scan processes in a background thread every 15 seconds and serve
 cached results to all callers.
 """
 
+import os
 import time
 import threading
 from collections import defaultdict
 
 import psutil
+
+_own_pid = os.getpid()
 
 from bannin.core.process_names import (
     get_friendly_name, is_hidden, should_split,
@@ -108,11 +111,15 @@ def _build_grouped(raw: list) -> list[dict]:
         if is_hidden(name):
             continue
 
-        friendly, category = get_friendly_name(name)
-
-        if should_split(name):
+        # Identify Bannin's own process
+        if proc["pid"] == _own_pid:
+            friendly, category = "Bannin Agent", "Monitoring"
+            group_key = friendly
+        elif should_split(name):
+            friendly, category = get_friendly_name(name)
             group_key = f"{friendly}::{proc['pid']}"
         else:
+            friendly, category = get_friendly_name(name)
             group_key = friendly
 
         g = groups[group_key]

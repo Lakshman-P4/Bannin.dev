@@ -18,8 +18,9 @@ Bannin is a universal monitoring platform that watches everything you run — yo
 - **Phase 2: Intelligence Engine** — COMPLETE (19 February 2026)
 - **Rebrand: Vigilo → Bannin** — COMPLETE (19 February 2026)
 - **Post-Phase 2 Fixes** — COMPLETE (19 February 2026) — dashboard process display, OOM UX, MCP intelligence auto-start, collection speed, offline detection
+- **Dashboard UX Overhaul** — COMPLETE (20 February 2026) — loading eye animation, process friendly names, background scanner (CPU fix), summary engine, process throbber, smart alerts, MCP friendly names
 
-The Python agent is functional: `pip install bannin`, `bannin start`, and the local API at `localhost:8420` serves live system metrics with intelligence (OOM prediction, alerts, progress tracking). See `development_log.md` for full details of what was built, tested, and the challenges encountered.
+The Python agent is functional: `pip install bannin`, `bannin start`, and the local API at `localhost:8420` serves live system metrics with intelligence (OOM prediction, alerts, progress tracking), plus a live dashboard with loading animation, plain-English summaries, and friendly process names. See `development_log.md` for full details.
 
 ## Architecture
 
@@ -62,6 +63,7 @@ Browser Extension ────────────────────�
 | `/llm/calls` | GET | Recent LLM API call history | ✅ Built |
 | `/llm/context` | GET | Context window exhaustion prediction | ✅ Built |
 | `/llm/latency` | GET | Response latency trend analysis | ✅ Built |
+| `/summary` | GET | Plain-English system health summary | ✅ Built |
 
 ## Target Platforms & Use Cases
 

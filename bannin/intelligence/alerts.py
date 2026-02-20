@@ -272,23 +272,46 @@ class ThresholdEngine:
         }
 
     def get_active_alerts(self) -> dict:
-        """Get currently active alerts (fired within their cooldown window)."""
+        """Get currently active alerts — only if the condition is STILL true."""
         now = time.time()
         active = []
 
-        # Build a lookup of cooldowns from rules
-        cooldowns = {r["id"]: r.get("cooldown_seconds", 60) for r in self._rules}
+        # Build rule lookups
+        rules_by_id = {r["id"]: r for r in self._rules}
+
+        # Collect current metrics once for re-checking
+        current = self._collect_metrics()
 
         with self._data_lock:
-            # For each rule that has fired, check if it's still within cooldown
             for rule_id, last_epoch in self._last_fired.items():
-                cooldown = cooldowns.get(rule_id, 60)
-                if now - last_epoch < cooldown:
-                    # Find the most recent alert for this rule
-                    for alert in reversed(self._alert_history):
-                        if alert["id"] == rule_id:
-                            active.append(alert)
-                            break
+                rule = rules_by_id.get(rule_id)
+                if not rule:
+                    continue
+
+                cooldown = rule.get("cooldown_seconds", 60)
+                if now - last_epoch >= cooldown:
+                    continue
+
+                # Re-check: is the condition STILL true right now?
+                metric_path = rule.get("metric", "")
+                value = self._resolve_metric(metric_path, current)
+                if value is None:
+                    continue
+
+                threshold = rule.get("threshold")
+                operator_str = rule.get("operator", ">=")
+                op_func = _OPERATORS.get(operator_str)
+                if not op_func or threshold is None:
+                    continue
+
+                if not op_func(value, threshold):
+                    continue  # Condition no longer true — suppress alert
+
+                # Find the most recent alert for this rule
+                for alert in reversed(self._alert_history):
+                    if alert["id"] == rule_id:
+                        active.append(alert)
+                        break
 
         return {
             "active": active,

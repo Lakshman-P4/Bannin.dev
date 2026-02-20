@@ -44,16 +44,17 @@ def get_running_processes(limit: int = 10) -> str:
     Args:
         limit: Maximum number of processes to return (default 10).
 
-    Returns JSON with process list (pid, name, cpu_percent, memory_percent,
-    status) and a summary of total/running/sleeping counts.
+    Returns JSON with process list (name, category, cpu_percent, memory_mb,
+    instance_count) and a summary of total/running/sleeping counts.
+    Process names are friendly (e.g., "Google Chrome", "VS Code", "Bannin Agent").
 
     Use this to see what is consuming resources on the machine.
     """
-    from bannin.core.process import get_process_count, get_top_processes
+    from bannin.core.process import get_process_count, get_grouped_processes
 
     result = {
         "summary": get_process_count(),
-        "top_processes": get_top_processes(limit=limit),
+        "top_processes": get_grouped_processes(limit=limit),
     }
     return json.dumps(result, default=str)
 
@@ -116,5 +117,8 @@ def serve():
     # Start intelligence modules so predictions and alerts work
     from bannin.intelligence.history import MetricHistory
     MetricHistory.get().start()
+    # Start background process scanner so grouped process data is available
+    from bannin.core.process import start_background_scanner
+    start_background_scanner(interval=15)
     print("Bannin MCP server starting...", file=sys.stderr)
     mcp.run(transport="stdio")

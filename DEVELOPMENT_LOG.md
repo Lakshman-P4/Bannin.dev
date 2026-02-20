@@ -1568,4 +1568,79 @@ This is documented here for future reference. The current priority remains: fini
 
 ---
 
-*Current priority: Phase 3 — Connectivity*
+---
+
+# Dashboard UX Overhaul
+
+**Date**: 20 February 2026
+**Goal**: Make the dashboard user-friendly — fast loading, friendly process names, plain-English summaries, branded loading experience, and smart alerts.
+**Status**: COMPLETE
+
+## What Was Built
+
+This wasn't a new phase — it was an essential polish pass before showing Bannin to anyone. The dashboard went from "developer prototype" to "something a non-technical user could open and immediately understand."
+
+### Loading Eye Animation
+
+When you open the dashboard, you see Bannin's eye logo — a dark orb with a glowing cyan iris ring, starting as a thin slit that opens to reveal the full logo. Below it: "BANNIN" and the tagline "I watch so you don't have to." The eye opens when data is loaded, then fades to reveal the dashboard.
+
+This isn't just polish — it solves a real UX problem. The background process scanner takes ~10 seconds for its first scan on Windows (300+ processes). Without the loading screen, users saw a blank dashboard with "--" everywhere and thought it was broken.
+
+### Friendly Process Names
+
+Raw process names like `chrome.exe`, `python.exe`, `msedge.exe` are now mapped to human-readable names:
+- `chrome.exe` x26 → "Google Chrome" (Browser) x26
+- `python.exe` (Bannin's own process) → "Bannin Agent" (Monitoring)
+- `msedge.exe` → "Microsoft Edge" (Browser)
+- `memory compression` → "Memory Compression" (System)
+
+~80+ process mappings across browsers, dev tools, communication, productivity, media, creative, gaming, security, and system categories. Each gets a color-coded category badge.
+
+### Background Process Scanner
+
+The biggest technical fix. `psutil.process_iter()` on Windows takes ~8 seconds for 300+ processes — and it was being called every 3 seconds by the dashboard poll. Bannin was using 99.6% CPU — the monitoring tool was the heaviest process on the machine.
+
+Fix: moved process scanning to a background daemon thread (15-second interval). All API endpoints read from cached results (<1ms). CPU dropped from 99.6% to ~35%. The 35% is the cost of the scan burst itself — acceptable since it's invisible to users.
+
+### Plain-English Summary
+
+"See Summary" button on the dashboard generates a human-readable health report:
+- **Levels**: healthy, busy, strained, critical
+- **Headlines**: "Your computer is running smoothly" or "Your computer is under heavy load"
+- **Details**: "RAM is at 92% (7.1 GB of 7.8 GB). The biggest memory users are Memory Compression (1.6 GB), Google Chrome (871 MB), Claude Desktop (773 MB)."
+- **Suggestions**: "Consider closing some Chrome tabs to free up memory."
+
+Entirely rule-based — no LLM calls. Fast and deterministic.
+
+### Smart Alerts
+
+Alerts previously showed stale data — if RAM spiked to 95% then dropped to 92%, the "RAM CRITICAL: 95%" alert kept showing for 60 more seconds. Now `get_active_alerts()` re-checks the current metric value before displaying. Alert disappears the moment the condition is no longer true.
+
+Also fixed encoding: em dashes (—) were rendering as "â€"" in alert messages.
+
+### MCP Server Updates
+
+- Process data now returns friendly names and categories (not raw exe names)
+- Background process scanner starts on MCP server boot (was missing)
+- Claude Code now sees "Google Chrome (Browser) x26" instead of raw `chrome.exe` entries
+
+### Process Table Throbber
+
+Instead of showing stale/zero data while the scanner runs its first pass, the process table shows a themed loading spinner ("Scanning processes...") that stays until real data arrives.
+
+### Files Changed
+
+| File | What Changed |
+|---|---|
+| `bannin/core/process.py` | Background scanner, own-PID detection ("Bannin Agent") |
+| `bannin/core/process_names.py` | NEW — 80+ process name mappings, categories, grouping rules |
+| `bannin/intelligence/summary.py` | NEW — rule-based plain-English health summary |
+| `bannin/intelligence/alerts.py` | Smart active alerts (re-checks current values) |
+| `bannin/config/defaults.json` | Fixed em dash encoding in alert messages |
+| `bannin/dashboard.html` | Loading eye, throbbers, friendly names, summary UI, breakdown |
+| `bannin/api.py` | `/summary` endpoint, pre-warm scanner on startup |
+| `bannin/mcp/server.py` | Friendly process names, background scanner boot |
+
+---
+
+*Current priority: Phase 3 — LLM Health Exposure + PyPI Launch*

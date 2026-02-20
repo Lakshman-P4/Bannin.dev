@@ -162,6 +162,10 @@ PROCESS_MAP = {
     "dwm.exe": ("Desktop Window Manager", "System", False),
     "widgets.exe": ("Windows Widgets", "System", False),
     "systemsettings.exe": ("Windows Settings", "System", False),
+    "memory compression": ("Memory Compression", "System", False),
+    "memcompression": ("Memory Compression", "System", False),
+    "syntpenh.exe": ("Synaptics Touchpad", "System", False),
+    "syntpenh": ("Synaptics Touchpad", "System", False),
 
     # --- macOS System (visible) ---
     "finder": ("Finder", "System", False),
