@@ -6,7 +6,7 @@ This guide sets up Bannin as an **MCP server** inside your code editor. That mea
 
 **Tagline**: *I watch so you don't have to.*
 
-**This is an early build.** Core monitoring and intelligence are working. Phone alerts, browser extension, and conversation health tracking are coming. Looking for honest feedback.
+**This is an early build.** Core monitoring, intelligence, conversation health tracking, and activity logging are working. Phone alerts and browser extension are coming. Looking for honest feedback.
 
 Takes about 5-10 minutes to set up.
 
@@ -347,13 +347,17 @@ Close and reopen the IDE.
 
 **6b.** Make sure the chat is in **Agent** mode. Look at the dropdown at the top of the chat panel -- it should say "Agent" (not "Edit" or "Ask").
 
-**6c.** Click the **tools icon** (wrench/hammer) in the chat input area. You should see **"bannin"** listed with 5 tools, all showing green checkmarks:
+**6c.** Click the **tools icon** (wrench/hammer) in the chat input area. You should see **"bannin"** listed with **9 tools**, all showing green checkmarks:
 
 - `get_system_metrics` -- CPU, RAM, disk, network, GPU
 - `get_running_processes` -- what's using your resources
 - `predict_oom` -- will you run out of memory?
 - `get_training_status` -- progress on long-running tasks
 - `get_active_alerts` -- anything that needs attention
+- `check_context_health` -- how healthy is this conversation? Detects context degradation and session fatigue
+- `get_recommendations` -- smart suggestions based on system state, LLM health, and platform constraints
+- `query_history` -- search past events, alerts, and snapshots
+- `search_events` -- full-text search across all stored Bannin events
 
 ### Cursor
 
@@ -444,8 +448,10 @@ You'll see:
 - **Loading animation** -- Bannin's eye opening
 - **Live CPU, RAM, disk gauges** with the top consumers listed under each
 - **Process table** with friendly names and category badges
+- **Conversation health** -- real-time context freshness, session fatigue, and chat quality for your AI coding tool sessions
 - **Alerts banner** at the top (only when something is wrong)
 - **"See Summary" button** -- click for a plain-English health report
+- **"Ask Bannin" chatbot** -- type natural language questions about your system health
 - **Memory chart** -- tracks usage over time
 - **OOM prediction** -- shows if memory is growing and when it might run out
 
@@ -510,10 +516,9 @@ Wait 10-15 seconds. The process scanner needs time for its first pass, especiall
 
 ## What's coming next
 
-- **Conversation health scoring** -- detects when AI conversations are degrading and recommends starting fresh
 - **Browser extension** -- monitors ChatGPT, Claude.ai, Gemini directly in your browser
-- **Activity logging** -- searchable history of everything Bannin has observed
 - **Phone alerts** -- push notifications when something needs your attention
+- **Auto-actions** -- Bannin takes action on your behalf (e.g., save checkpoints before a crash)
 
 ---
 

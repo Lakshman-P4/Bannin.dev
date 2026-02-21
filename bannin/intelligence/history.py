@@ -76,6 +76,24 @@ class MetricHistory:
                 snapshot = self._take_snapshot()
                 with self._data_lock:
                     self._readings.append(snapshot)
+
+                # Emit to analytics pipeline (downsampled inside pipeline)
+                try:
+                    from bannin.analytics.pipeline import EventPipeline
+                    EventPipeline.get().emit({
+                        "type": "metric_snapshot",
+                        "source": "system",
+                        "severity": None,
+                        "message": f"CPU {snapshot['cpu_percent']:.0f}%, RAM {snapshot['ram_percent']:.0f}%, Disk {snapshot['disk_percent']:.0f}%",
+                        "data": {
+                            "cpu_percent": snapshot["cpu_percent"],
+                            "ram_percent": snapshot["ram_percent"],
+                            "ram_used_gb": snapshot["ram_used_gb"],
+                            "disk_percent": snapshot["disk_percent"],
+                        },
+                    })
+                except Exception:
+                    pass
             except Exception:
                 pass
 

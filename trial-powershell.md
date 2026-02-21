@@ -6,7 +6,7 @@ This guide is for people who prefer the command line. No IDE, no browser extensi
 
 **Tagline**: *I watch so you don't have to.*
 
-**This is an early build.** Core monitoring and intelligence are working. Phone alerts, browser extension, and conversation health tracking are coming. Looking for honest feedback.
+**This is an early build.** Core monitoring, intelligence, conversation health tracking, and activity logging are working. Phone alerts and browser extension are coming. Looking for honest feedback.
 
 Takes about 5 minutes to set up.
 
@@ -288,6 +288,10 @@ curl http://localhost:8420/predictions/oom
 | `curl http://localhost:8420/predictions/oom` | Memory crash prediction |
 | `curl http://localhost:8420/status` | Agent identity (hostname, OS, version, uptime) |
 | `curl http://localhost:8420/tasks` | Progress on tracked tasks (training runs, etc.) |
+| `curl http://localhost:8420/llm/health` | Conversation health score with context freshness, session fatigue |
+| `curl http://localhost:8420/recommendations` | Smart suggestions based on system and LLM health |
+| `curl http://localhost:8420/chat` | Chatbot -- ask natural language questions (POST with `{"message": "..."}`) |
+| `curl http://localhost:8420/ollama` | Ollama local LLM status (if running) |
 
 ---
 
@@ -314,8 +318,10 @@ You'll see:
 - **Loading animation** -- Bannin's eye opening
 - **Live CPU, RAM, disk gauges** with the top consumers listed under each
 - **Process table** with friendly names and category badges (Browser, Code Editor, System, etc.)
+- **Conversation health** -- real-time context freshness, session fatigue, and chat quality for your AI coding tool sessions
 - **Alerts banner** at the top (only appears when something is wrong)
 - **"See Summary" button** -- click for a plain-English health report
+- **"Ask Bannin" chatbot** -- type natural language questions about your system health
 - **Memory chart** -- tracks RAM usage over time so you can spot trends
 - **OOM prediction** -- shows if memory is growing and when it might run out
 - **Task tracking** -- progress bars for long-running operations
@@ -381,10 +387,9 @@ If you're using old Command Prompt (cmd.exe), try PowerShell instead. Or use `cu
 
 ## What's coming next
 
-- **Conversation health scoring** -- detects when AI conversations are degrading and recommends starting fresh
 - **Browser extension** -- monitors ChatGPT, Claude.ai, Gemini directly in your browser
-- **Activity logging** -- searchable history of everything Bannin has observed
 - **Phone alerts** -- push notifications when something needs your attention
+- **Auto-actions** -- Bannin takes action on your behalf (e.g., save checkpoints before a crash)
 
 ---
 

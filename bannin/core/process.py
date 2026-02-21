@@ -39,7 +39,7 @@ def _ensure_cpu_primed():
         _cpu_primed = True
 
 
-def start_background_scanner(interval: int = 15):
+def start_background_scanner(interval: int = 30):
     """Start the background process scanner thread."""
     t = threading.Thread(target=_bg_scan_loop, args=(interval,), daemon=True)
     t.start()

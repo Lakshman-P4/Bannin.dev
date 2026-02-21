@@ -189,6 +189,14 @@ PROCESS_MAP = {
     "chatgpt.exe": ("ChatGPT", "AI", False),
     "chatgpt": ("ChatGPT", "AI", False),
     "copilot.exe": ("Copilot", "AI", False),
+    "ollama.exe": ("Ollama", "AI", False),
+    "ollama": ("Ollama", "AI", False),
+    "ollama_llama_server.exe": ("Ollama Server", "AI", False),
+    "ollama_llama_server": ("Ollama Server", "AI", False),
+    "llama-server.exe": ("Llama Server", "AI", False),
+    "llama-server": ("Llama Server", "AI", False),
+    "lmstudio.exe": ("LM Studio", "AI", False),
+    "lmstudio": ("LM Studio", "AI", False),
 
     # --- Edge WebView (grouped) ---
     "msedgewebview2.exe": ("Edge WebView", "System", False),
@@ -316,6 +324,10 @@ PROCESS_DESCRIPTIONS = {
     "Claude Desktop": "Anthropic's Claude AI desktop app. Multiple processes handle the UI, MCP servers, and background services — each connected tool or conversation may spawn additional processes.",
     "ChatGPT": "OpenAI's ChatGPT desktop app.",
     "Copilot": "Microsoft Copilot AI assistant.",
+    "Ollama": "Local LLM server. Runs models like Llama, Mistral, and others on your machine with GPU acceleration.",
+    "Ollama Server": "Ollama inference process handling model loading and generation. Uses GPU VRAM proportional to model size.",
+    "Llama Server": "llama.cpp inference server for local LLM hosting.",
+    "LM Studio": "Desktop app for running local LLMs. Downloads, manages, and serves models with a chat UI.",
 
     # Edge WebView
     "Edge WebView": "Embedded browser engine used by other apps (Spotify, Teams, widgets, etc.) to render web content. Many apps share this runtime, so high instance counts are normal.",

@@ -223,6 +223,7 @@ This shows:
 - **Alerts banner** (only when something is wrong)
 - **OOM prediction** (will you run out of memory?)
 - **Summary button** for a plain-English health report
+- **"Ask Bannin" chatbot** -- type natural language questions about your session
 
 > **Want the full experience?** Open `http://localhost:8420` in a new browser tab. The dashboard has a loading animation (Bannin's eye opening), smoother charts, and more room to see everything.
 

@@ -60,6 +60,24 @@ _INTENT_PATTERNS: list[tuple[str, re.Pattern]] = [
         r"screenshot|camera|photo|record|password|login",
         re.IGNORECASE,
     )),
+    # Bannin-specific intents
+    ("history", re.compile(
+        r"what happened|while i was (away|gone|out)|recent events|event log|history|"
+        r"what did i miss|anything happen|any alerts|past alerts",
+        re.IGNORECASE,
+    )),
+    ("ollama", re.compile(
+        r"ollama|local (model|llm)|what model.*(running|loaded)|llama|mistral.*local",
+        re.IGNORECASE,
+    )),
+    ("llm_health", re.compile(
+        r"conversation health|context (health|quality|degradi|rot)|session (health|fatigue)|"
+        r"how.{0,5} my (conversation|chat|context)|am i (degrading|losing context)|"
+        r"chat health|health score|test.*(chat|conversation|context) health|"
+        r"my (chat|conversation|context).*(health|score|quality)|"
+        r"check.*(chat|conversation|context)|llm health",
+        re.IGNORECASE,
+    )),
     # System monitoring intents
     ("disk", re.compile(
         r"disk|storage|space|free up|clean|large files|what.s taking.*(space|room)|"
@@ -81,7 +99,8 @@ _INTENT_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("health", re.compile(
         r"system.*(health|status|doing|look|check|ok\b|fine|strain|load)|"
         r"health.*(check|status|system|report)|"
-        r"how.s my (system|computer|machine|pc|laptop)|"
+        r"how.{0,5} my (system|computer|machine|pc|laptop)|"
+        r"how.{0,5} the (system|computer|machine)|"
         r"overview|summary|diagnos|scan my|system check",
         re.IGNORECASE,
     )),
@@ -654,6 +673,205 @@ def _handle_general(message: str) -> dict:
 # Main entry point
 # ---------------------------------------------------------------------------
 
+def _handle_history(message: str) -> dict:
+    """Handle 'what happened while I was away?' queries."""
+    try:
+        from bannin.analytics.store import AnalyticsStore
+        store = AnalyticsStore.get()
+        stats = store.get_stats()
+        total = stats.get("total_events", 0)
+
+        if total == 0:
+            return {
+                "intent": "history",
+                "response": "I don't have any stored history yet. Events start being recorded once the agent is running.",
+                "data": {},
+            }
+
+        # Get recent alerts and notable events
+        alerts = store.query(event_type="alert", limit=10)
+        sessions = store.query(event_type="session_start", limit=5)
+        ollama = store.query(event_type="ollama_model_load", limit=5)
+
+        lines = [f"Here's what I've recorded ({total} total events):", ""]
+
+        if alerts:
+            lines.append(f"**Recent alerts ({len(alerts)}):**")
+            for a in alerts[:5]:
+                ts = a.get("timestamp", "")[:19].replace("T", " ") if a.get("timestamp") else ""
+                lines.append(f"- [{a.get('severity', '')}] {a.get('message', '')} ({ts})")
+            lines.append("")
+
+        if ollama:
+            lines.append("**Ollama activity:**")
+            for o in ollama[:3]:
+                lines.append(f"- {o.get('message', '')}")
+            lines.append("")
+
+        if sessions:
+            lines.append(f"**Sessions:** {len(sessions)} session(s) recorded")
+            lines.append("")
+
+        by_type = stats.get("by_type", {})
+        if by_type:
+            type_summary = ", ".join(f"{t}: {c}" for t, c in sorted(by_type.items(), key=lambda x: -x[1])[:5])
+            lines.append(f"**Event breakdown:** {type_summary}")
+
+        lines.append("")
+        lines.append("Want me to search for something specific? Ask me to search for any keyword.")
+
+        return {
+            "intent": "history",
+            "response": "\n".join(lines),
+            "data": stats,
+        }
+    except Exception:
+        return {
+            "intent": "history",
+            "response": "I couldn't access the event history. The analytics store may not be initialized yet.",
+            "data": {},
+        }
+
+
+def _handle_ollama(message: str) -> dict:
+    """Handle Ollama/local LLM queries."""
+    try:
+        from bannin.llm.ollama import OllamaMonitor
+        ollama = OllamaMonitor.get().get_health()
+
+        if not ollama.get("available"):
+            return {
+                "intent": "ollama",
+                "response": "Ollama doesn't seem to be running right now. Start it with `ollama serve` to enable local model monitoring.",
+                "data": ollama,
+            }
+
+        models = ollama.get("models", [])
+        if not models:
+            return {
+                "intent": "ollama",
+                "response": "Ollama is running but no models are loaded. Load one with `ollama run <model>`.",
+                "data": ollama,
+            }
+
+        lines = [f"Ollama is running with **{len(models)} model(s)** loaded:", ""]
+        for m in models:
+            lines.append(f"- **{m.get('name', '')}** ({m.get('parameter_size', '')}, {m.get('quantization', '')})")
+            lines.append(f"  VRAM: {m.get('vram_gb', 0):.1f} GB ({m.get('vram_percent', 0):.0f}%)")
+            if m.get("expires_at"):
+                lines.append(f"  Expires: {m.get('expires_at', '')[:19]}")
+            lines.append("")
+
+        vram = ollama.get("vram_pressure", 0)
+        if vram >= 80:
+            lines.append(f"VRAM pressure is high ({vram:.0f}%). Consider unloading unused models.")
+        elif vram >= 50:
+            lines.append(f"VRAM usage is moderate ({vram:.0f}%).")
+        else:
+            lines.append(f"VRAM usage looks healthy ({vram:.0f}%).")
+
+        return {
+            "intent": "ollama",
+            "response": "\n".join(lines),
+            "data": ollama,
+        }
+    except Exception:
+        return {
+            "intent": "ollama",
+            "response": "I couldn't check Ollama status. It may not be installed or the monitor isn't running.",
+            "data": {},
+        }
+
+
+def _handle_llm_health(message: str) -> dict:
+    """Handle conversation health queries -- lists all active sessions individually."""
+    try:
+        from bannin.llm.tracker import LLMTracker
+
+        # Fetch combined health (includes per_source)
+        try:
+            import urllib.request
+            import json as _json
+            req = urllib.request.Request("http://localhost:8420/llm/health", method="GET")
+            resp = urllib.request.urlopen(req, timeout=3)
+            health = _json.loads(resp.read())
+        except Exception:
+            # Fallback: compute locally
+            session_fatigue = None
+            vram_pressure = None
+            try:
+                from bannin.api import get_mcp_session_data
+                mcp_data = get_mcp_session_data()
+                if mcp_data:
+                    session_fatigue = mcp_data
+            except Exception:
+                pass
+            try:
+                from bannin.llm.ollama import OllamaMonitor
+                ollama = OllamaMonitor.get().get_health()
+                if ollama.get("available"):
+                    vram_pressure = ollama.get("vram_pressure")
+            except Exception:
+                pass
+            tracker = LLMTracker.get()
+            health = tracker.get_health(
+                session_fatigue=session_fatigue,
+                vram_pressure=vram_pressure,
+            )
+
+        score = health.get("health_score", 100)
+        rating = health.get("rating", "excellent")
+        per_source = health.get("per_source", [])
+
+        lines = [f"**Conversation health: {score}/100 ({rating})**"]
+
+        if per_source and len(per_source) > 1:
+            lines.append(f"*{len(per_source)} active sources (combined = worst score)*")
+            lines.append("")
+
+            for src in per_source:
+                src_score = src.get("health_score", 100)
+                src_rating = src.get("rating", "excellent")
+                lines.append(f"**{src.get('label', 'Unknown')}** -- {src_score}/100 ({src_rating})")
+                components = src.get("components", {})
+                for name, comp in components.items():
+                    label = name.replace("_", " ").title()
+                    lines.append(f"  - {label}: {comp.get('score', 100):.0f}/100 -- {comp.get('detail', '')}")
+                rec = src.get("recommendation")
+                if rec:
+                    lines.append(f"  *{rec}*")
+                lines.append("")
+        else:
+            source = health.get("source", "Unknown")
+            lines.append(f"*Source: {source}*")
+            lines.append("")
+
+            components = health.get("components", {})
+            for name, comp in components.items():
+                label = name.replace("_", " ").title()
+                lines.append(f"- {label}: {comp.get('score', 100):.0f}/100 -- {comp.get('detail', '')}")
+
+        rec = health.get("recommendation")
+        if rec:
+            lines.append(f"**Recommendation:** {rec}")
+
+        dz = health.get("danger_zone")
+        if dz and dz.get("in_danger_zone"):
+            lines.append(f"\nYou're past the {dz.get('danger_zone_percent', 80)}% danger zone for {dz.get('model', 'this model')}.")
+
+        return {
+            "intent": "llm_health",
+            "response": "\n".join(lines),
+            "data": health,
+        }
+    except Exception:
+        return {
+            "intent": "llm_health",
+            "response": "I couldn't compute conversation health right now. The health scoring module may not be initialized.",
+            "data": {},
+        }
+
+
 _HANDLERS = {
     "disk": _handle_disk,
     "memory": _handle_memory,
@@ -667,6 +885,9 @@ _HANDLERS = {
     "who_are_you": _handle_who_are_you,
     "philosophical": _handle_philosophical,
     "unsupported": _handle_unsupported,
+    "history": _handle_history,
+    "ollama": _handle_ollama,
+    "llm_health": _handle_llm_health,
     "general": _handle_general,
 }
 

@@ -134,6 +134,19 @@ class ThresholdEngine:
                     self._last_fired[rule_id] = now
                 new_alerts.append(alert)
 
+                # Emit to analytics pipeline
+                try:
+                    from bannin.analytics.pipeline import EventPipeline
+                    EventPipeline.get().emit({
+                        "type": "alert",
+                        "source": "alerts",
+                        "severity": alert.get("severity", "info"),
+                        "message": alert.get("message", ""),
+                        "data": {"rule_id": rule_id, "value": alert.get("value"), "threshold": threshold},
+                    })
+                except Exception:
+                    pass
+
         return new_alerts
 
     def _resolve_metric(self, path: str, snapshot: dict):
@@ -222,7 +235,7 @@ class ThresholdEngine:
         except Exception:
             pass
 
-        # LLM metrics
+        # LLM metrics + health score
         try:
             from bannin.llm.tracker import LLMTracker
             tracker = LLMTracker.get()
@@ -231,6 +244,59 @@ class ThresholdEngine:
                 "total_cost_usd": summary.get("total_cost_usd", 0),
                 "total_calls": summary.get("total_calls", 0),
             }
+
+            # Wire health score into snapshot for alert rules
+            try:
+                session_fatigue = None
+                vram_pressure = None
+                try:
+                    from bannin.api import get_mcp_session_data
+                    mcp_data = get_mcp_session_data()
+                    if mcp_data:
+                        session_fatigue = mcp_data
+                except Exception:
+                    pass
+                try:
+                    from bannin.llm.ollama import OllamaMonitor
+                    ollama = OllamaMonitor.get().get_health()
+                    if ollama.get("available"):
+                        vram_pressure = ollama.get("vram_pressure")
+                except Exception:
+                    pass
+
+                health = tracker.get_health(
+                    session_fatigue=session_fatigue,
+                    vram_pressure=vram_pressure,
+                )
+                snapshot["llm"]["health_score"] = health.get("health_score", 100)
+                snapshot["llm"]["health_rating"] = health.get("rating", "excellent")
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+        # Ollama metrics
+        try:
+            from bannin.llm.ollama import OllamaMonitor
+            ollama_health = OllamaMonitor.get().get_health()
+            if ollama_health.get("available"):
+                snapshot["ollama"] = {
+                    "vram_pressure": ollama_health.get("vram_pressure", 0),
+                    "model_count": ollama_health.get("model_count", 0),
+                }
+        except Exception:
+            pass
+
+        # MCP session metrics (from pushed data)
+        try:
+            from bannin.api import get_mcp_session_data
+            mcp_data = get_mcp_session_data()
+            if mcp_data:
+                snapshot["mcp"] = {
+                    "session_fatigue": mcp_data.get("session_fatigue", 0),
+                    "total_tool_calls": mcp_data.get("total_tool_calls", 0),
+                    "session_duration_minutes": mcp_data.get("session_duration_minutes", 0),
+                }
         except Exception:
             pass
 

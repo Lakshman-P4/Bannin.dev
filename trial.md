@@ -6,7 +6,7 @@ With Claude Code, Bannin works as an **MCP server** -- meaning Claude can check 
 
 **Tagline**: *I watch so you don't have to.*
 
-**This is an early build.** Core monitoring and intelligence are working. Phone alerts, browser extension, and conversation health tracking are coming. Looking for honest feedback.
+**This is an early build.** Core monitoring, intelligence, conversation health tracking, and activity logging are working. Phone alerts and browser extension are coming. Looking for honest feedback.
 
 Takes about 5 minutes to set up.
 
@@ -135,7 +135,7 @@ Once Claude Code is running, type:
 /mcp
 ```
 
-You should see **"bannin"** listed with **5 tools**, all showing as connected:
+You should see **"bannin"** listed with **9 tools**, all showing as connected:
 
 | Tool | What it does |
 |---|---|
@@ -144,6 +144,10 @@ You should see **"bannin"** listed with **5 tools**, all showing as connected:
 | `predict_oom` | Will you run out of memory? Predicts crashes before they happen |
 | `get_training_status` | Progress on long-running tasks (training, builds) |
 | `get_active_alerts` | Anything that needs your attention right now |
+| `check_context_health` | How healthy is this conversation? Detects context degradation and session fatigue |
+| `get_recommendations` | Smart suggestions based on system state, LLM health, and platform constraints |
+| `query_history` | Search past events, alerts, and snapshots ("what happened while I was away?") |
+| `search_events` | Full-text search across all stored Bannin events |
 
 **If bannin isn't listed:** Make sure `.mcp.json` is in the project root (not a subfolder). Try restarting Claude Code.
 
@@ -226,8 +230,10 @@ You'll see:
 - **Loading animation** -- Bannin's eye opening (takes a few seconds on first load)
 - **Live CPU, RAM, disk gauges** with the top consumers listed under each
 - **Process table** with friendly names and category badges (Browser, Code Editor, System, etc.)
+- **Conversation health** -- real-time context freshness, session fatigue, and chat quality for your AI coding tool sessions
 - **Alerts banner** at the top (only appears when something is actually wrong)
 - **"See Summary" button** -- click it for a plain-English health report
+- **"Ask Bannin" chatbot** -- type natural language questions about your system health
 - **Memory chart** -- tracks RAM usage over time so you can spot trends
 - **OOM prediction** -- shows if memory is growing and when it might run out
 - **Task tracking** -- progress bars for any long-running operations
@@ -291,10 +297,9 @@ The install didn't work. Go back to Step 2 and try again. On Windows, make sure 
 
 ## What's coming next
 
-- **Conversation health scoring** -- detects when AI conversations are degrading and recommends starting fresh
 - **Browser extension** -- monitors ChatGPT, Claude.ai, Gemini directly in your browser
-- **Activity logging** -- searchable history of everything Bannin has observed
 - **Phone alerts** -- push notifications when something needs your attention
+- **Auto-actions** -- Bannin takes action on your behalf (e.g., save checkpoints before a crash)
 
 ---
 

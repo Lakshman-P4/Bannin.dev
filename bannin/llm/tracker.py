@@ -67,6 +67,26 @@ class LLMTracker:
         with self._data_lock:
             self._calls.append(entry)
 
+        # Emit to analytics pipeline
+        try:
+            from bannin.analytics.pipeline import EventPipeline
+            EventPipeline.get().emit({
+                "type": "llm_call",
+                "source": "llm",
+                "severity": None,
+                "message": f"LLM call: {model} ({input_tokens}in/{output_tokens}out, ${cost:.4f})",
+                "data": {
+                    "provider": provider,
+                    "model": model,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "cost_usd": cost,
+                    "latency_seconds": round(latency_seconds, 3),
+                },
+            })
+        except Exception:
+            pass
+
     def get_summary(self) -> dict:
         """Get a full summary of all tracked LLM usage this session."""
         with self._data_lock:
@@ -227,6 +247,82 @@ class LLMTracker:
             "avg_latency": round(sum(latencies) / len(latencies), 3),
             "data_points": len(latencies),
         }
+
+    def get_health(self, session_fatigue: dict | None = None, vram_pressure: float | None = None, inference_trend: float | None = None, client_label: str | None = None) -> dict:
+        """Compute unified health score from all available signals.
+
+        Args:
+            session_fatigue: Dict from MCPSessionTracker.get_session_health().
+            vram_pressure: Ollama VRAM usage 0-100.
+            inference_trend: Current tps / initial tps ratio.
+            client_label: Override MCP client label (e.g., 'Claude Desktop').
+
+        Returns:
+            Full health dict with score, rating, components, recommendations.
+        """
+        from bannin.llm.health import calculate_health_score
+        from bannin.llm.pricing import get_context_window
+
+        with self._data_lock:
+            calls = list(self._calls)
+
+        # Derive context_percent from the most recent call's model,
+        # or from MCP session token estimation if no API calls tracked
+        context_percent = 0.0
+        model = None
+        if calls:
+            latest = calls[-1]
+            model = latest.get("model")
+            if model:
+                ctx_window = get_context_window(model)
+                if ctx_window:
+                    context_percent = min(100.0, (latest["input_tokens"] / ctx_window) * 100)
+
+        # If no API calls but we have MCP session data, use estimated context
+        if context_percent == 0.0 and session_fatigue:
+            estimated = session_fatigue.get("estimated_context_percent", 0)
+            if estimated > 0:
+                context_percent = estimated
+
+        # Derive latency_ratio from call history
+        latency_ratio = None
+        if len(calls) >= 4:
+            latencies = [c["latency_seconds"] for c in calls]
+            mid = len(latencies) // 2
+            first_avg = sum(latencies[:mid]) / mid if mid > 0 else 0
+            second_avg = sum(latencies[mid:]) / (len(latencies) - mid) if len(latencies) > mid else 0
+            if first_avg > 0:
+                latency_ratio = round(second_avg / first_avg, 2)
+
+        # Derive cost_efficiency_trend
+        cost_efficiency_trend = None
+        if len(calls) >= 4:
+            mid = len(calls) // 2
+            first_half = calls[:mid]
+            second_half = calls[mid:]
+            first_cpo = self._avg_cost_per_output(first_half)
+            second_cpo = self._avg_cost_per_output(second_half)
+            if first_cpo and first_cpo > 0:
+                cost_efficiency_trend = round(second_cpo / first_cpo, 2)
+
+        return calculate_health_score(
+            context_percent=context_percent,
+            latency_ratio=latency_ratio,
+            cost_efficiency_trend=cost_efficiency_trend,
+            session_fatigue=session_fatigue,
+            vram_pressure=vram_pressure,
+            inference_trend=inference_trend,
+            model=model,
+            client_label=client_label,
+        )
+
+    def _avg_cost_per_output(self, calls: list[dict]) -> float:
+        """Average cost per output token across a list of calls."""
+        total_cost = sum(c["cost_usd"] for c in calls)
+        total_output = sum(c["output_tokens"] for c in calls)
+        if total_output == 0:
+            return 0.0
+        return total_cost / total_output
 
     def _generate_warnings(self, calls: list[dict], total_cost: float) -> list[str]:
         """Generate warnings based on usage patterns."""

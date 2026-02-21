@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bannin Analytics</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+:root {
+  --bg: #0a0a0f;
+  --card: rgba(255,255,255,0.04);
+  --card-border: rgba(255,255,255,0.08);
+  --text: #e0e0e8;
+  --text-dim: #8888a0;
+  --accent: #6ee7b7;
+  --amber: #fbbf24;
+  --red: #ef4444;
+  --blue: #60a5fa;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  padding: 24px;
+}
+.header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.header h1 {
+  font-size: 24px;
+  font-weight: 600;
+  background: linear-gradient(135deg, var(--accent), var(--blue));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.stats-bar {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+.stat-chip {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 13px;
+}
+.stat-chip .value { font-weight: 600; color: var(--accent); }
+.search-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.search-bar input {
+  flex: 1;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  padding: 10px 16px;
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+}
+.search-bar input:focus { border-color: var(--accent); }
+.search-bar button {
+  background: var(--accent);
+  color: #0a0a0f;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 14px;
+}
+.search-bar button:hover { opacity: 0.9; }
+.filters {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+.filter-btn {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 6px;
+  padding: 6px 14px;
+  color: var(--text-dim);
+  font-size: 12px;
+  cursor: pointer;
+}
+.filter-btn.active { border-color: var(--accent); color: var(--accent); }
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.card {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 20px;
+  backdrop-filter: blur(10px);
+}
+.card h3 {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.card canvas { width: 100% !important; height: 200px !important; }
+.timeline {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 20px;
+}
+.timeline h3 {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.event-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  font-size: 13px;
+}
+.event-row:last-child { border-bottom: none; }
+.event-time {
+  color: var(--text-dim);
+  font-size: 12px;
+  min-width: 140px;
+  font-family: monospace;
+}
+.event-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  min-width: 70px;
+  text-align: center;
+}
+.badge-critical { background: rgba(239,68,68,0.2); color: var(--red); }
+.badge-warning { background: rgba(251,191,36,0.2); color: var(--amber); }
+.badge-info { background: rgba(96,165,250,0.2); color: var(--blue); }
+.badge-default { background: rgba(255,255,255,0.06); color: var(--text-dim); }
+.event-type {
+  color: var(--text-dim);
+  font-size: 11px;
+  font-family: monospace;
+  min-width: 120px;
+}
+.event-msg { color: var(--text); flex: 1; }
+.empty-state {
+  text-align: center;
+  padding: 40px;
+  color: var(--text-dim);
+}
+@media (max-width: 768px) {
+  .grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Bannin Analytics</h1>
+</div>
+
+<div class="stats-bar" id="stats-bar"></div>
+
+<div class="search-bar">
+  <input type="text" id="search-input" placeholder="Search events... (e.g., RAM, OOM, Chrome, model loaded)">
+  <button onclick="doSearch()">Search</button>
+</div>
+
+<div class="filters">
+  <button class="filter-btn active" data-filter="all" onclick="setFilter('all', this)">All</button>
+  <button class="filter-btn" data-filter="alert" onclick="setFilter('alert', this)">Alerts</button>
+  <button class="filter-btn" data-filter="metric_snapshot" onclick="setFilter('metric_snapshot', this)">Metrics</button>
+  <button class="filter-btn" data-filter="llm_call" onclick="setFilter('llm_call', this)">LLM Calls</button>
+  <button class="filter-btn" data-filter="mcp_tool_call" onclick="setFilter('mcp_tool_call', this)">MCP</button>
+  <button class="filter-btn" data-filter="ollama_model_load" onclick="setFilter('ollama', this)">Ollama</button>
+  <button class="filter-btn" data-filter="session_start" onclick="setFilter('session', this)">Sessions</button>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <h3>System Metrics (Last Hour)</h3>
+    <canvas id="metrics-chart"></canvas>
+  </div>
+  <div class="card">
+    <h3>LLM Cost (Last 7 Days)</h3>
+    <canvas id="cost-chart"></canvas>
+  </div>
+</div>
+
+<div class="timeline">
+  <h3>Event Timeline</h3>
+  <div id="timeline-content">
+    <div class="empty-state">Loading events...</div>
+  </div>
+</div>
+
+<script>
+const API = window.location.origin;
+let currentFilter = 'all';
+let metricsChart = null;
+let costChart = null;
+
+async function fetchJSON(url) {
+  try {
+    const res = await fetch(url);
+    return await res.json();
+  } catch (e) { return null; }
+}
+
+function formatTime(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function severityBadge(sev) {
+  const cls = sev === 'critical' ? 'badge-critical' :
+              sev === 'warning' ? 'badge-warning' :
+              sev === 'info' ? 'badge-info' : 'badge-default';
+  return `<span class="event-badge ${cls}">${sev || '-'}</span>`;
+}
+
+async function loadStats() {
+  const data = await fetchJSON(`${API}/stats`);
+  if (!data) return;
+
+  const bar = document.getElementById('stats-bar');
+  bar.innerHTML = `
+    <div class="stat-chip">Total Events: <span class="value">${(data.total_events || 0).toLocaleString()}</span></div>
+    <div class="stat-chip">DB Size: <span class="value">${data.db_size_mb || 0} MB</span></div>
+    <div class="stat-chip">FTS5: <span class="value">${data.fts_available ? 'Yes' : 'No'}</span></div>
+    ${data.oldest_event ? `<div class="stat-chip">Since: <span class="value">${formatTime(data.oldest_event)}</span></div>` : ''}
+  `;
+}
+
+async function loadTimeline() {
+  const container = document.getElementById('timeline-content');
+  let url = `${API}/timeline?since=24h&limit=200`;
+
+  if (currentFilter !== 'all') {
+    if (currentFilter === 'ollama') {
+      url += '&types=ollama_model_load,ollama_model_unload';
+    } else if (currentFilter === 'session') {
+      url += '&types=session_start,session_stop';
+    } else {
+      url += `&types=${currentFilter}`;
+    }
+  }
+
+  const data = await fetchJSON(url);
+  if (!data || !data.timeline || data.timeline.length === 0) {
+    container.innerHTML = '<div class="empty-state">No events found for this filter.</div>';
+    return;
+  }
+
+  container.innerHTML = data.timeline.map(e => `
+    <div class="event-row">
+      <span class="event-time">${formatTime(e.timestamp)}</span>
+      ${severityBadge(e.severity)}
+      <span class="event-type">${e.type || ''}</span>
+      <span class="event-msg">${e.message || ''}</span>
+    </div>
+  `).join('');
+}
+
+async function loadMetricsChart() {
+  const data = await fetchJSON(`${API}/events?type=metric_snapshot&since=1h&limit=100`);
+  if (!data || !data.events || data.events.length === 0) return;
+
+  const events = data.events.reverse();
+  const labels = events.map(e => {
+    const d = new Date(e.timestamp);
+    return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  });
+  const cpuData = events.map(e => (e.data || {}).cpu_percent || 0);
+  const ramData = events.map(e => (e.data || {}).ram_percent || 0);
+
+  const ctx = document.getElementById('metrics-chart').getContext('2d');
+  if (metricsChart) metricsChart.destroy();
+
+  metricsChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: 'CPU %', data: cpuData, borderColor: '#60a5fa', backgroundColor: 'rgba(96,165,250,0.1)', fill: true, tension: 0.3, pointRadius: 0 },
+        { label: 'RAM %', data: ramData, borderColor: '#6ee7b7', backgroundColor: 'rgba(110,231,183,0.1)', fill: true, tension: 0.3, pointRadius: 0 },
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: '#8888a0', font: { size: 11 } } } },
+      scales: {
+        x: { ticks: { color: '#8888a0', font: { size: 10 }, maxTicksLimit: 8 }, grid: { color: 'rgba(255,255,255,0.04)' } },
+        y: { min: 0, max: 100, ticks: { color: '#8888a0', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.04)' } }
+      }
+    }
+  });
+}
+
+async function loadCostChart() {
+  const data = await fetchJSON(`${API}/cost?days=7`);
+  if (!data || !data.cost_trend || data.cost_trend.length === 0) {
+    const ctx = document.getElementById('cost-chart').getContext('2d');
+    if (costChart) costChart.destroy();
+    costChart = new Chart(ctx, {
+      type: 'bar',
+      data: { labels: ['No data'], datasets: [{ label: 'Cost ($)', data: [0], backgroundColor: 'rgba(110,231,183,0.3)' }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#8888a0' }, grid: { display: false } }, y: { ticks: { color: '#8888a0' }, grid: { color: 'rgba(255,255,255,0.04)' } } } }
+    });
+    return;
+  }
+
+  const labels = data.cost_trend.map(d => d.day);
+  const costs = data.cost_trend.map(d => d.total_cost || 0);
+
+  const ctx = document.getElementById('cost-chart').getContext('2d');
+  if (costChart) costChart.destroy();
+
+  costChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Cost ($)',
+        data: costs,
+        backgroundColor: 'rgba(110,231,183,0.4)',
+        borderColor: '#6ee7b7',
+        borderWidth: 1,
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#8888a0', font: { size: 10 } }, grid: { display: false } },
+        y: { ticks: { color: '#8888a0', font: { size: 10 }, callback: v => '$' + v.toFixed(2) }, grid: { color: 'rgba(255,255,255,0.04)' } }
+      }
+    }
+  });
+}
+
+function setFilter(filter, btn) {
+  currentFilter = filter;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  loadTimeline();
+}
+
+async function doSearch() {
+  const q = document.getElementById('search-input').value.trim();
+  if (!q) { loadTimeline(); return; }
+
+  const container = document.getElementById('timeline-content');
+  const data = await fetchJSON(`${API}/search?q=${encodeURIComponent(q)}&limit=100`);
+  if (!data || !data.results || data.results.length === 0) {
+    container.innerHTML = `<div class="empty-state">No results for "${q}"</div>`;
+    return;
+  }
+
+  container.innerHTML = data.results.map(e => `
+    <div class="event-row">
+      <span class="event-time">${formatTime(e.timestamp)}</span>
+      ${severityBadge(e.severity)}
+      <span class="event-type">${e.type || ''}</span>
+      <span class="event-msg">${e.message || ''}</span>
+    </div>
+  `).join('');
+}
+
+document.getElementById('search-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doSearch();
+});
+
+// Initial load
+loadStats();
+loadTimeline();
+loadMetricsChart();
+loadCostChart();
+
+// Refresh every 30 seconds
+setInterval(() => {
+  loadStats();
+  loadTimeline();
+  loadMetricsChart();
+}, 30000);
+</script>
+</body>
+</html>
