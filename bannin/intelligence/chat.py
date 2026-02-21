@@ -63,7 +63,7 @@ _INTENT_PATTERNS: list[tuple[str, re.Pattern]] = [
     # Bannin-specific intents
     ("history", re.compile(
         r"what happened|while i was (away|gone|out)|recent events|event log|history|"
-        r"what did i miss|anything happen|any alerts|past alerts",
+        r"what did i miss|anything happen|any alerts|past alerts|^alerts?[\s!?.]*$",
         re.IGNORECASE,
     )),
     ("ollama", re.compile(
@@ -75,13 +75,14 @@ _INTENT_PATTERNS: list[tuple[str, re.Pattern]] = [
         r"how.{0,5} my (conversation|chat|context)|am i (degrading|losing context)|"
         r"chat health|health score|test.*(chat|conversation|context) health|"
         r"my (chat|conversation|context).*(health|score|quality)|"
-        r"check.*(chat|conversation|context)|llm health",
+        r"check.*(chat|conversation|context)|llm health|^conversation[\s!?.]*$",
         re.IGNORECASE,
     )),
     # System monitoring intents
     ("disk", re.compile(
         r"disk|storage|space|free up|clean|large files|what.s taking.*(space|room)|"
-        r"clear|cache|temp|reclaim|full|drive|gb free|folder.*(big|large|size)",
+        r"clear|cache|temp|reclaim|drive|gb free|folder.*(big|large|size)|"
+        r"(disk|storage|drive).{0,8}full|full.{0,8}(disk|storage|drive)",
         re.IGNORECASE,
     )),
     ("memory", re.compile(
@@ -93,7 +94,8 @@ _INTENT_PATTERNS: list[tuple[str, re.Pattern]] = [
         re.IGNORECASE,
     )),
     ("process", re.compile(
-        r"process|running|what.s (open|running|using)|top apps?|kill|close|background",
+        r"process|running|what.s (open|running|using)|top apps?|kill|close|background|"
+        r"^what.?s open[\s!?.]*$",
         re.IGNORECASE,
     )),
     ("health", re.compile(
@@ -101,11 +103,13 @@ _INTENT_PATTERNS: list[tuple[str, re.Pattern]] = [
         r"health.*(check|status|system|report)|"
         r"how.{0,5} my (system|computer|machine|pc|laptop)|"
         r"how.{0,5} the (system|computer|machine)|"
-        r"overview|summary|diagnos|scan my|system check",
+        r"overview|summary|diagnos|scan my|system check|"
+        r"^overall[\s!?.]*$|overall health|general health|full (check|scan|report)|"
+        r"^(health|system|status)[\s!?.]*$",
         re.IGNORECASE,
     )),
     ("help", re.compile(
-        r"^(help|what can you|commands|options|\?)[\s!?.]*$",
+        r"^(help|what can you|commands|options|menu|\?)[\s!?.]*$",
         re.IGNORECASE,
     )),
 ]
@@ -718,7 +722,7 @@ def _handle_history(message: str) -> dict:
             lines.append(f"**Event breakdown:** {type_summary}")
 
         lines.append("")
-        lines.append("Want me to search for something specific? Ask me to search for any keyword.")
+        lines.append("Want me to check something specific? I can look at your disk, memory, CPU, or processes.")
 
         return {
             "intent": "history",
