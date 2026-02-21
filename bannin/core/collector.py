@@ -6,9 +6,12 @@ import psutil
 
 
 def get_cpu_metrics() -> dict:
+    # Use interval=0 (non-blocking) -- relies on psutil's internal delta
+    # between calls. First call returns 0.0 but subsequent calls are accurate
+    # since the agent calls this frequently (every few seconds).
     return {
-        "percent": psutil.cpu_percent(interval=0.1),
-        "per_core": psutil.cpu_percent(interval=0.1, percpu=True),
+        "percent": psutil.cpu_percent(interval=0),
+        "per_core": psutil.cpu_percent(interval=0, percpu=True),
         "count_physical": psutil.cpu_count(logical=False),
         "count_logical": psutil.cpu_count(logical=True),
         "frequency_mhz": (

@@ -27,6 +27,9 @@ class MetricHistory:
         self._data_lock = threading.Lock()
         self._thread = None
         self._running = False
+        self._cycle_count = 0
+        self._cached_disk: dict | None = None
+        self._cached_gpu: list | None = None
 
     @classmethod
     def get(cls) -> "MetricHistory":
@@ -97,21 +100,44 @@ class MetricHistory:
             except Exception:
                 pass
 
-            # Also run alert evaluation on each cycle
-            try:
-                from bannin.intelligence.alerts import ThresholdEngine
-                ThresholdEngine.get().evaluate()
-            except Exception:
-                pass
+            # Run alert evaluation every other cycle, passing the snapshot
+            # we already collected (avoids duplicate psutil calls)
+            if self._cycle_count % 2 == 0:
+                try:
+                    from bannin.intelligence.alerts import ThresholdEngine
+                    ThresholdEngine.get().evaluate(metrics_snapshot={
+                        "memory": {"percent": snapshot["ram_percent"],
+                                   "used_gb": snapshot["ram_used_gb"],
+                                   "available_gb": snapshot["ram_available_gb"],
+                                   "total_gb": snapshot["ram_total_gb"]},
+                        "disk": {"percent": snapshot["disk_percent"],
+                                 "used_gb": snapshot["disk_used_gb"],
+                                 "free_gb": snapshot["disk_free_gb"]},
+                        "cpu": {"percent": snapshot["cpu_percent"]},
+                        "gpu": snapshot.get("gpu", []),
+                    })
+                except Exception:
+                    pass
 
+            self._cycle_count += 1
             time.sleep(self._interval)
 
     def _take_snapshot(self) -> dict:
-        """Collect a single timestamped snapshot of key metrics."""
+        """Collect a single timestamped snapshot of key metrics.
+
+        CPU and RAM are collected every cycle (they change fast).
+        Disk and GPU are collected every 8th cycle (~32s) and cached
+        since they change slowly -- saves significant CPU.
+        """
         mem = get_memory_metrics()
-        disk = get_disk_metrics()
         cpu = get_cpu_metrics()
-        gpus = get_gpu_metrics()
+
+        # Disk and GPU: refresh every 8 cycles, use cache otherwise
+        if self._cycle_count % 8 == 0 or self._cached_disk is None:
+            self._cached_disk = get_disk_metrics()
+            self._cached_gpu = get_gpu_metrics()
+        disk = self._cached_disk
+        gpus = self._cached_gpu
 
         snapshot = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
