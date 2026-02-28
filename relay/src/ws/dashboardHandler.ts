@@ -14,6 +14,7 @@ import {
   getAgentConnection, setPendingTrainingStop, clearPendingTrainingStop,
 } from "./registry.js";
 import { sendToClient } from "./messages.js";
+import { getLatestSnapshot } from "../services/metrics.service.js";
 
 export async function handleDashboardConnection(ws: WebSocket, req: IncomingMessage): Promise<void> {
   const url = new URL(req.url ?? "", `http://${req.headers.host ?? "localhost"}`);
@@ -97,6 +98,34 @@ async function handleDashboardMessage(ws: WebSocket, user: JwtPayload, msg: Dash
         agentId: msg.agentId,
         status: agent.isOnline ? "connected" : "disconnected",
       });
+
+      // Backfill latest metrics so the dashboard doesn't show "--" until the
+      // next agent push cycle (up to 5 seconds away).
+      const latest = await getLatestSnapshot(msg.agentId) as {
+        timestamp: Date; cpu: number; memory: number; disk: number;
+        gpu: number | null; gpuMemory: number | null;
+        network: unknown; raw: unknown;
+      } | null;
+      if (latest) {
+        // Prefer the raw JSON (full nested structure) if available,
+        // otherwise reconstruct from flattened columns.
+        const rawData = latest.raw as Record<string, unknown> | null;
+        const data = rawData ?? {
+          cpu: { percent: latest.cpu },
+          memory: { percent: latest.memory },
+          disk: { percent: latest.disk },
+          network: latest.network,
+          gpu: latest.gpu != null
+            ? [{ gpu_utilization_percent: latest.gpu, memory_percent: latest.gpuMemory ?? 0 }]
+            : null,
+        };
+        sendToClient(ws, {
+          type: "agent_metrics",
+          agentId: msg.agentId,
+          timestamp: latest.timestamp.toISOString(),
+          data,
+        });
+      }
       break;
     }
     case "unsubscribe": {

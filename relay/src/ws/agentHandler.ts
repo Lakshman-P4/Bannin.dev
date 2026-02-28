@@ -108,7 +108,7 @@ export async function handleAgentConnection(ws: WebSocket, req: IncomingMessage)
         typeof (parsed as Record<string, unknown>).timestamp === "string"
       ) {
         const raw = parsed as { type: string; timestamp: string; data?: Record<string, unknown> };
-        if (["training", "health", "oom_prediction", "processes"].includes(raw.type) && raw.data) {
+        if (["metrics", "training", "health", "oom_prediction", "processes"].includes(raw.type) && raw.data) {
           const relayType = mapAgentTypeToRelayType(raw.type as AgentMessageType);
           broadcastToClients(getDashboardsForAgent(agentId), {
             type: relayType,

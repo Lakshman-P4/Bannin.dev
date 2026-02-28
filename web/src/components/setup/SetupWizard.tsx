@@ -203,13 +203,20 @@ export function SetupWizard() {
             <p className="mb-3 text-xs text-status-amber">Copy failed. Select the text manually.</p>
           )}
           <p className="text-sm text-text-secondary mb-2">Start the agent with your relay key:</p>
-          <div className="rounded-lg bg-surface-raised p-3">
+          <div className="flex items-center justify-between rounded-lg bg-surface-raised p-3">
             <code className="font-mono text-xs text-accent-cyan break-all">
-              python -m bannin.cli start --relay-key {apiKey}
+              python -m bannin.cli start --relay-key {apiKey} --relay-url wss://bannin-relay.onrender.com
             </code>
+            <button
+              onClick={() => copyToClipboard(`python -m bannin.cli start --relay-key ${apiKey} --relay-url wss://bannin-relay.onrender.com`)}
+              className="ml-2 shrink-0 text-text-muted hover:text-text-primary transition-colors"
+              aria-label="Copy start command"
+            >
+              {copied ? <Check size={16} /> : <Copy size={16} />}
+            </button>
           </div>
           <p className="mt-2 text-xs text-text-muted">
-            Or: <code className="text-text-secondary">bannin start --relay-key {apiKey.slice(0, 12)}...</code>
+            Or: <code className="text-text-secondary">bannin start --relay-key {apiKey.slice(0, 12)}... --relay-url wss://bannin-relay.onrender.com</code>
           </p>
           <Button className="mt-4 w-full" onClick={() => setStep('confirm')}>
             I&apos;ve started the agent

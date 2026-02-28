@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bannin"
-version = "0.1.0"
+version = "0.1.1"
 description = "Universal monitoring platform — watch your machines, LLMs, notebooks, and coding tools from your phone."
 readme = "README.md"
 license = "MIT"

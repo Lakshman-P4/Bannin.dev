@@ -5,40 +5,40 @@ import { z } from "zod";
 const metricsDataSchema = z.object({
   cpu: z.object({
     percent: z.number(),
-    per_core: z.array(z.number()),
-    count_physical: z.number(),
-    count_logical: z.number(),
-    frequency_mhz: z.number().nullable(),
+    per_core: z.array(z.number()).optional(),
+    count_physical: z.number().optional(),
+    count_logical: z.number().optional(),
+    frequency_mhz: z.number().nullable().optional(),
   }),
   memory: z.object({
-    total_gb: z.number(),
-    available_gb: z.number(),
-    used_gb: z.number(),
+    total_gb: z.number().optional(),
+    available_gb: z.number().optional(),
+    used_gb: z.number().optional(),
     percent: z.number(),
   }),
   disk: z.object({
-    total_gb: z.number(),
-    used_gb: z.number(),
-    free_gb: z.number(),
+    total_gb: z.number().optional(),
+    used_gb: z.number().optional(),
+    free_gb: z.number().optional(),
     percent: z.number(),
   }),
   network: z.object({
     bytes_sent: z.number(),
     bytes_received: z.number(),
-    bytes_sent_mb: z.number(),
-    bytes_received_mb: z.number(),
-  }),
+    bytes_sent_mb: z.number().optional(),
+    bytes_received_mb: z.number().optional(),
+  }).optional(),
   gpu: z
     .array(
       z.object({
-        index: z.number(),
-        name: z.string(),
-        memory_total_mb: z.number(),
-        memory_used_mb: z.number(),
-        memory_free_mb: z.number(),
+        index: z.number().optional(),
+        name: z.string().optional(),
+        memory_total_mb: z.number().optional(),
+        memory_used_mb: z.number().optional(),
+        memory_free_mb: z.number().optional(),
         memory_percent: z.number(),
         gpu_utilization_percent: z.number(),
-        temperature_c: z.number().nullable(),
+        temperature_c: z.number().nullable().optional(),
       })
     )
     .nullable()
