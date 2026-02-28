@@ -3,6 +3,8 @@
 Metric history, OOM prediction, progress detection, threshold alerts.
 """
 
+from __future__ import annotations
+
 from bannin.intelligence.history import MetricHistory
 from bannin.intelligence.oom import OOMPredictor
 from bannin.intelligence.alerts import ThresholdEngine

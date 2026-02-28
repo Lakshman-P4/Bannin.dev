@@ -1,20 +1,36 @@
+"""Bannin agent REST API -- all endpoints served at localhost:8420.
+
+FastAPI application with system metrics, intelligence, LLM health,
+analytics, chatbot, and MCP session management endpoints.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
 import platform
+import threading
 import time
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 
+from bannin.log import logger
 from bannin.core.collector import get_all_metrics
 from bannin.core.gpu import get_gpu_metrics, is_gpu_available
 from bannin.core.process import (
     get_process_count, get_top_processes,
     get_grouped_processes, get_resource_breakdown,
+    is_scanner_ready,
 )
 from bannin.platforms.detector import detect_platform
+from bannin.routes import emit_event as _emit, error_response
 
-_start_time = time.time()
+_start_time: float = 0.0
 _detected_platform = detect_platform()
 
 try:
@@ -22,26 +38,19 @@ try:
 except FileNotFoundError:
     _DASHBOARD_HTML = "<h1>Bannin</h1><p>Dashboard file not found. API available at /health</p>"
 
-app = FastAPI(
-    title="Bannin Agent",
-    description="Universal monitoring agent -- system metrics, GPU, processes, cloud notebooks",
-    version="0.1.0",
-)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["GET", "POST"],
-    allow_headers=["*"],
-)
+# ---------------------------------------------------------------------------
+# Lifespan
+# ---------------------------------------------------------------------------
 
-
-@app.on_event("startup")
-def _on_startup():
+def _on_startup() -> None:
     """Start background services and pre-warm process cache on boot."""
-    # Analytics store + pipeline (must start before anything emits events)
+    global _start_time
+    _start_time = time.time()
+
     from bannin.analytics.store import AnalyticsStore
     from bannin.analytics.pipeline import EventPipeline
+
     AnalyticsStore.get()
     pipeline = EventPipeline.get()
     pipeline.start()
@@ -56,28 +65,53 @@ def _on_startup():
     from bannin.intelligence.history import MetricHistory
     MetricHistory.get().start()
 
-    # Ollama monitor (zero-config, auto-detects)
     from bannin.llm.ollama import OllamaMonitor
     OllamaMonitor.get().start()
 
-    # Start JSONL session reader so the agent has real token data
-    # even when the MCP server isn't running (standalone dashboard use)
     try:
         import os
         from bannin.llm.claude_session import ClaudeSessionReader
-        reader = ClaudeSessionReader.get()
-        reader.start(cwd=os.getcwd())
-    except Exception:
-        pass
+    except ImportError:
+        logger.debug("JSONL session reader unavailable (claude_session module not importable)")
+    else:
+        try:
+            reader = ClaudeSessionReader.get()
+            reader.start(cwd=os.getcwd())
+        except Exception:
+            logger.debug("JSONL session reader not started (may not be in a Claude Code session)")
 
-    # Pre-warm process data in background so first request is instant
-    import threading
     threading.Thread(target=_prewarm, daemon=True).start()
 
 
-@app.on_event("shutdown")
-def _on_shutdown():
-    """Emit session stop event and flush pipeline."""
+def _on_shutdown() -> None:
+    """Stop background services (reverse start order), flush pipeline, close store."""
+    # Stop background services before flushing the pipeline so their last
+    # events can still be written.
+    try:
+        from bannin.llm.claude_session import ClaudeSessionReader
+        ClaudeSessionReader.get().stop()
+    except Exception:
+        logger.debug("Failed to stop ClaudeSessionReader on shutdown")
+
+    try:
+        from bannin.llm.ollama import OllamaMonitor
+        OllamaMonitor.get().stop()
+    except Exception:
+        logger.debug("Failed to stop OllamaMonitor on shutdown")
+
+    try:
+        from bannin.intelligence.history import MetricHistory
+        MetricHistory.get().stop()
+    except Exception:
+        logger.debug("Failed to stop MetricHistory on shutdown")
+
+    try:
+        from bannin.core.process import stop_background_scanner
+        stop_background_scanner()
+    except Exception:
+        logger.debug("Failed to stop background scanner on shutdown")
+
+    # Emit final event and flush pipeline
     try:
         from bannin.analytics.pipeline import EventPipeline
         pipeline = EventPipeline.get()
@@ -90,28 +124,128 @@ def _on_shutdown():
         })
         pipeline.stop()
     except Exception:
-        pass
+        logger.warning("Failed to emit session_stop event on shutdown", exc_info=True)
+
+    try:
+        from bannin.analytics.store import AnalyticsStore
+        AnalyticsStore.get().close_all()
+    except Exception:
+        logger.debug("Failed to close analytics store connections on shutdown")
 
 
-def _prewarm():
+_relay_client = None
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    global _relay_client
+    _on_startup()
+
+    # Start relay client if configured
+    import os
+    relay_key = os.environ.get("BANNIN_RELAY_KEY", "")
+    relay_url = os.environ.get("BANNIN_RELAY_URL", "")
+    if relay_key:
+        try:
+            from bannin.relay import RelayClient
+            _relay_client = RelayClient(relay_url, relay_key)
+            await _relay_client.start()
+        except Exception:
+            logger.warning("Failed to start relay client", exc_info=True)
+
+    yield
+
+    # Stop relay client before shutting down other services
+    if _relay_client is not None:
+        try:
+            await _relay_client.stop()
+        except Exception:
+            logger.debug("Failed to stop relay client on shutdown")
+        _relay_client = None
+
+    _on_shutdown()
+
+
+def _prewarm() -> None:
     """Start the background process scanner."""
     from bannin.core.process import start_background_scanner
-    start_background_scanner(interval=30)
+    start_background_scanner(interval=15)
 
+
+# ---------------------------------------------------------------------------
+# App creation + router mounting
+# ---------------------------------------------------------------------------
+
+app = FastAPI(
+    title="Bannin Agent",
+    description="Universal monitoring agent -- system metrics, GPU, processes, cloud notebooks",
+    version="0.1.0",
+    lifespan=_lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:8420",
+        "http://127.0.0.1:8420",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
+
+# Mount sub-routers
+from bannin.routes.llm import router as llm_router
+from bannin.routes.intelligence import router as intelligence_router
+from bannin.routes.mcp import router as mcp_router
+from bannin.routes.analytics import router as analytics_router
+from bannin.routes.actions import router as actions_router
+
+app.include_router(llm_router)
+app.include_router(intelligence_router)
+app.include_router(mcp_router)
+app.include_router(analytics_router)
+app.include_router(actions_router)
+
+
+# ---------------------------------------------------------------------------
+# Error handling
+# ---------------------------------------------------------------------------
+
+@app.exception_handler(Exception)
+async def _global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Catch unhandled exceptions and return structured JSON instead of HTML 500."""
+    logger.error("Unhandled exception on %s %s: %s", request.method, request.url.path, exc, exc_info=True)
+    return error_response(500, "Internal server error")
+
+
+@app.exception_handler(404)
+async def _not_found_handler(request: Request, exc: Exception) -> JSONResponse:
+    return error_response(404, "Not found", f"{request.url.path} does not exist")
+
+
+# ---------------------------------------------------------------------------
+# Core endpoints (kept in api.py)
+# ---------------------------------------------------------------------------
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
-def dashboard():
+def dashboard() -> HTMLResponse:
     """Serve the live monitoring dashboard."""
+    _emit("dashboard_view", "agent", "info", "Dashboard viewed")
     return HTMLResponse(content=_DASHBOARD_HTML)
 
 
 @app.get("/health")
-def health():
+def health() -> dict:
+    _emit("health_check", "agent", "info", "Health check polled")
     return {"status": "ok"}
 
 
 @app.get("/status")
-def status():
+def status() -> dict:
     return {
         "agent": "bannin",
         "version": "0.1.0",
@@ -126,7 +260,7 @@ def status():
 
 
 @app.get("/metrics")
-def metrics():
+def metrics() -> dict:
     data = get_all_metrics()
     data["gpu"] = get_gpu_metrics()
     data["environment"] = _detected_platform
@@ -134,7 +268,7 @@ def metrics():
 
 
 @app.get("/processes")
-def processes(limit: int = 15):
+def processes(limit: int = Query(default=15, ge=1, le=100)) -> dict:
     return {
         "summary": get_process_count(),
         "top_processes": get_grouped_processes(limit=limit),
@@ -142,8 +276,37 @@ def processes(limit: int = 15):
     }
 
 
+@app.get("/metrics/self")
+def metrics_self() -> dict:
+    """Report the Bannin agent's own resource footprint."""
+    import os
+    import psutil
+
+    proc = psutil.Process(os.getpid())
+    with proc.oneshot():
+        mem = proc.memory_info()
+        try:
+            cpu = proc.cpu_percent(interval=0.1)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            cpu = 0.0
+        threads = proc.num_threads()
+        create_time = proc.create_time()
+
+    uptime = time.time() - _start_time
+
+    return {
+        "pid": os.getpid(),
+        "cpu_percent": round(cpu, 1),
+        "memory_rss_mb": round(mem.rss / (1024 * 1024), 1),
+        "memory_vms_mb": round(mem.vms / (1024 * 1024), 1),
+        "threads": threads,
+        "uptime_seconds": round(uptime, 1),
+        "create_time": create_time,
+    }
+
+
 @app.get("/platform")
-def platform_info():
+def platform_info() -> dict:
     """Platform-specific monitoring for Colab, Kaggle, or local."""
     if _detected_platform == "colab":
         from bannin.platforms.colab import get_colab_metrics
@@ -158,431 +321,162 @@ def platform_info():
         }
 
 
-@app.get("/llm/usage")
-def llm_usage():
-    """LLM token and cost tracking summary."""
-    from bannin.llm.tracker import LLMTracker
-    tracker = LLMTracker.get()
-    return tracker.get_summary()
+# ---------------------------------------------------------------------------
+# Server-Sent Events (SSE) stream
+# ---------------------------------------------------------------------------
+
+def _sse_event(event_type: str, data: dict) -> str:
+    """Format an SSE event string."""
+    payload = json.dumps(data, default=str)
+    return f"event: {event_type}\ndata: {payload}\n\n"
 
 
-@app.get("/llm/calls")
-def llm_calls(limit: int = 20):
-    """Recent LLM API calls."""
-    from bannin.llm.tracker import LLMTracker
-    tracker = LLMTracker.get()
-    return {"calls": tracker.get_calls(limit=limit)}
+def _collect_fast() -> list[tuple[str, dict]]:
+    """Fast-cycle data: metrics + active alerts (every ~3s)."""
+    events = []
+    try:
+        data = get_all_metrics()
+        data["gpu"] = get_gpu_metrics()
+        data["environment"] = _detected_platform
+        events.append(("metrics", data))
+    except Exception:
+        logger.warning("SSE: failed to collect metrics", exc_info=True)
+    try:
+        from bannin.intelligence.alerts import ThresholdEngine
+        events.append(("alerts", ThresholdEngine.get().get_active_alerts()))
+    except Exception:
+        logger.warning("SSE: failed to collect alerts", exc_info=True)
+    return events
 
 
-@app.get("/llm/context")
-def llm_context(model: str = "", tokens: int = 0):
-    """Context window usage prediction for a model."""
-    from bannin.llm.tracker import LLMTracker
-    tracker = LLMTracker.get()
-    if not model:
-        return {"error": "Provide ?model=gpt-4o&tokens=50000"}
-    return tracker.get_context_usage(model, tokens)
+def _collect_medium() -> list[tuple[str, dict]]:
+    """Medium-cycle data: processes, tasks, OOM (every ~8s)."""
+    events = []
+    try:
+        events.append(("processes", {
+            "summary": get_process_count(),
+            "top_processes": get_grouped_processes(limit=15),
+            "resource_breakdown": get_resource_breakdown(),
+            "scanner_ready": is_scanner_ready(),
+        }))
+    except Exception:
+        logger.warning("SSE: failed to collect processes", exc_info=True)
+    try:
+        from bannin.intelligence.progress import ProgressTracker
+        events.append(("tasks", ProgressTracker.get().get_tasks()))
+    except Exception:
+        logger.warning("SSE: failed to collect tasks", exc_info=True)
+    try:
+        from bannin.intelligence.oom import OOMPredictor
+        events.append(("oom", OOMPredictor.get().predict()))
+    except Exception:
+        logger.warning("SSE: failed to collect OOM prediction", exc_info=True)
+    return events
 
 
-@app.get("/llm/latency")
-def llm_latency(model: str = ""):
-    """Latency trend analysis."""
-    from bannin.llm.tracker import LLMTracker
-    tracker = LLMTracker.get()
-    return tracker.get_latency_trend(model=model or None)
-
-
-@app.get("/predictions/oom")
-def predictions_oom():
-    """Predict out-of-memory events based on memory usage trends."""
-    from bannin.intelligence.oom import OOMPredictor
-    predictor = OOMPredictor()
-    return predictor.predict()
-
-
-@app.get("/history/memory")
-def history_memory(minutes: float = 5):
-    """Memory usage history over the last N minutes (for graphing and predictions)."""
-    from bannin.intelligence.history import MetricHistory
-    history = MetricHistory.get()
-    readings = history.get_memory_history(last_n_minutes=minutes)
-    return {
-        "readings": readings,
-        "count": len(readings),
-        "period_minutes": minutes,
-        "total_readings_stored": history.reading_count,
-    }
-
-
-@app.get("/alerts")
-def alerts(limit: int = 50):
-    """Full alert history for this session."""
-    from bannin.intelligence.alerts import ThresholdEngine
-    return ThresholdEngine.get().get_alerts(limit=limit)
-
-
-@app.get("/alerts/active")
-def alerts_active():
-    """Currently active alerts (fired within their cooldown window)."""
-    from bannin.intelligence.alerts import ThresholdEngine
-    return ThresholdEngine.get().get_active_alerts()
-
-
-@app.get("/tasks")
-def tasks():
-    """Tracked tasks — training progress and ETAs."""
-    from bannin.intelligence.progress import ProgressTracker
-    return ProgressTracker.get().get_tasks()
-
-
-@app.get("/tasks/{task_id}")
-def task_detail(task_id: str):
-    """Get details of a single tracked task."""
-    from bannin.intelligence.progress import ProgressTracker
-    task = ProgressTracker.get().get_task(task_id)
-    if task is None:
-        return {"error": f"Task '{task_id}' not found"}
-    return task
-
-
-@app.get("/summary")
-def summary():
-    """Plain-English system health summary for non-technical users."""
-    from bannin.intelligence.summary import generate_summary
-    return generate_summary()
-
-
-# MCP session data pushed from MCP server processes (keyed by session_id)
-_mcp_sessions: dict[str, dict] = {}
-_mcp_session_lock = __import__("threading").Lock()
-_MCP_SESSION_TTL = 60  # seconds before a session is considered expired
-
-
-def _expire_sessions():
-    """Remove sessions that haven't pushed data within TTL. Caller holds lock."""
-    now = __import__("time").time()
-    expired = [sid for sid, data in _mcp_sessions.items()
-               if now - data.get("_last_seen", 0) > _MCP_SESSION_TTL]
-    for sid in expired:
-        del _mcp_sessions[sid]
-
-
-def get_mcp_sessions() -> dict[str, dict]:
-    """Get all live MCP sessions (keyed by session_id). Expires stale sessions."""
-    with _mcp_session_lock:
-        _expire_sessions()
-        return {sid: {k: v for k, v in data.items() if not k.startswith("_")}
-                for sid, data in _mcp_sessions.items()}
-
-
-def get_mcp_session_data() -> dict | None:
-    """Backwards-compat: get the worst (most fatigued) MCP session, or None."""
-    sessions = get_mcp_sessions()
-    if not sessions:
-        return None
-    # Return the session with the highest fatigue (worst health)
-    worst = max(sessions.values(), key=lambda s: s.get("session_fatigue", 0))
-    return worst
-
-
-@app.post("/mcp/session")
-def mcp_session_update(body: dict):
-    """Receive MCP session health data pushed from an MCP server process."""
-    session_id = body.get("session_id")
-    if not session_id:
-        # Legacy push without session_id -- use a synthetic key
-        session_id = "_legacy"
-    with _mcp_session_lock:
-        body["_last_seen"] = __import__("time").time()
-        _mcp_sessions[session_id] = body
-    return {"status": "ok"}
-
-
-@app.get("/mcp/sessions")
-def mcp_sessions_list():
-    """All live MCP sessions with their health data."""
-    sessions = get_mcp_sessions()
-    return {
-        "sessions": list(sessions.values()),
-        "count": len(sessions),
-    }
-
-
-@app.get("/llm/health")
-def llm_health(source: str = ""):
-    """Unified conversation health score across all signal sources.
-
-    Returns combined score + per_source array with individual health per MCP session / Ollama / API.
-    """
-    from bannin.llm.tracker import LLMTracker
-    from bannin.llm.health import calculate_health_score
-
-    tracker = LLMTracker.get()
-    per_source: list[dict] = []
-
-    # --- Per-MCP-session health ---
-    if source != "api":
-        sessions = get_mcp_sessions()
-        for sid, session_data in sessions.items():
-            label = session_data.get("client_label", "MCP Session")
-            health = tracker.get_health(
-                session_fatigue=session_data,
-                client_label=label,
-            )
-            entry = {
-                "id": f"mcp-{sid[:8]}",
-                "label": f"{label} - MCP",
-                "type": "mcp",
-                "session_id": sid,
-                "health_score": health["health_score"],
-                "rating": health["rating"],
-                "components": health.get("components", {}),
-                "recommendation": health.get("recommendation"),
-                "data_source": session_data.get("data_source", "estimated"),
-                "session_duration_minutes": session_data.get("session_duration_minutes", 0),
-                "total_tool_calls": session_data.get("total_tool_calls", 0),
-                "estimated_context_percent": session_data.get("estimated_context_percent", 0),
-            }
-            # Include real JSONL data when available
-            real = session_data.get("real_session_data")
-            if real:
-                entry["real_data"] = {
-                    "model": real.get("model"),
-                    "context_tokens": real.get("context_tokens", 0),
-                    "context_window": real.get("context_window", 200000),
-                    "context_percent": real.get("context_percent", 0),
-                    "total_output_tokens": real.get("total_output_tokens", 0),
-                    "total_messages": real.get("total_messages", 0),
-                    "total_tool_uses": real.get("total_tool_uses", 0),
-                    "cache_hit_rate": real.get("cache_hit_rate", 0),
-                    "session_duration_seconds": real.get("session_duration_seconds", 0),
-                    "api_calls": real.get("api_calls", 0),
-                    "context_growth_rate": real.get("context_growth_rate"),
-                }
-            per_source.append(entry)
-
-    # --- Local JSONL fallback: show health from JSONL even without MCP push ---
-    if source != "api" and not any(s["type"] == "mcp" for s in per_source):
-        try:
-            from bannin.llm.claude_session import ClaudeSessionReader
-            rd = ClaudeSessionReader.get().get_real_health_data()
-            if rd and rd.get("context_tokens", 0) > 0:
-                # Build a synthetic session_data dict for health calculation
-                ctx_pct = rd.get("context_percent", 0)
-                duration_s = rd.get("session_duration_seconds", 0)
-                session_data = {
-                    "session_fatigue": 0,
-                    "context_pressure": 0,
-                    "estimated_context_percent": ctx_pct,
-                    "session_duration_minutes": round(duration_s / 60, 1),
-                    "total_tool_calls": rd.get("total_tool_uses", 0),
-                    "data_source": "real",
-                    "real_session_data": rd,
-                }
-                label = "Claude Code"
-                health = tracker.get_health(
-                    session_fatigue=session_data,
-                    client_label=label,
-                )
-                entry = {
-                    "id": "local-jsonl",
-                    "label": f"{label} - MCP",
-                    "type": "mcp",
-                    "health_score": health["health_score"],
-                    "rating": health["rating"],
-                    "components": health.get("components", {}),
-                    "recommendation": health.get("recommendation"),
-                    "data_source": "real",
-                    "session_duration_minutes": round(duration_s / 60, 1),
-                    "total_tool_calls": rd.get("total_tool_uses", 0),
-                    "estimated_context_percent": ctx_pct,
-                    "real_data": {
-                        "model": rd.get("model"),
-                        "context_tokens": rd.get("context_tokens", 0),
-                        "context_window": rd.get("context_window", 200000),
-                        "context_percent": ctx_pct,
-                        "total_output_tokens": rd.get("total_output_tokens", 0),
-                        "total_messages": rd.get("total_messages", 0),
-                        "total_tool_uses": rd.get("total_tool_uses", 0),
-                        "cache_hit_rate": rd.get("cache_hit_rate", 0),
-                        "session_duration_seconds": duration_s,
-                        "api_calls": rd.get("api_calls", 0),
-                        "context_growth_rate": rd.get("context_growth_rate"),
-                    },
-                }
-                per_source.append(entry)
-        except Exception:
-            pass
-
-    # --- Ollama health ---
-    if source != "api" and source != "mcp":
-        try:
-            from bannin.llm.ollama import OllamaMonitor
-            ollama = OllamaMonitor.get().get_health()
-            if ollama.get("available") and ollama.get("models"):
-                vram_pressure = ollama.get("vram_pressure")
-                inference_trend = ollama.get("inference_trend")
-                model_names = [m.get("name", "") for m in ollama.get("models", [])[:3]]
-                label = "Ollama - " + ", ".join(model_names) if model_names else "Ollama"
-                health = tracker.get_health(
-                    vram_pressure=vram_pressure,
-                    inference_trend=inference_trend,
-                )
-                per_source.append({
-                    "id": "ollama",
-                    "label": label,
-                    "type": "ollama",
-                    "health_score": health["health_score"],
-                    "rating": health["rating"],
-                    "components": health.get("components", {}),
-                    "recommendation": health.get("recommendation"),
-                })
-        except Exception:
-            pass
-
-    # --- API tracker health (if there are tracked calls) ---
-    api_summary = tracker.get_summary()
-    if api_summary.get("total_calls", 0) > 0:
-        health = tracker.get_health()
-        per_source.append({
-            "id": "api",
-            "label": "LLM API",
-            "type": "api",
-            "health_score": health["health_score"],
-            "rating": health["rating"],
-            "components": health.get("components", {}),
-            "recommendation": health.get("recommendation"),
-        })
-
-    # --- Combined score (worst-of) ---
-    if per_source:
-        worst_score = min(s["health_score"] for s in per_source)
-        combined_health = tracker.get_health(
-            session_fatigue=get_mcp_session_data(),
-            vram_pressure=_get_ollama_vram(),
-        )
-        combined_health["health_score"] = worst_score
-        combined_health["rating"] = _score_to_rating(worst_score)
-        combined_health["source"] = f"Combined ({len(per_source)} source{'s' if len(per_source) != 1 else ''})"
-        combined_health["per_source"] = per_source
-        return combined_health
-    else:
-        # No active sources
-        return tracker.get_health()
-
-
-def _get_ollama_vram() -> float | None:
-    """Helper to get Ollama VRAM pressure, or None."""
+def _collect_slow() -> list[tuple[str, dict]]:
+    """Slow-cycle data: status, LLM, health, Ollama, etc (every ~15s)."""
+    events = []
+    try:
+        events.append(("status", {
+            "agent": "bannin",
+            "version": "0.1.0",
+            "hostname": platform.node(),
+            "platform": platform.system(),
+            "platform_version": platform.version(),
+            "python_version": platform.python_version(),
+            "gpu_available": is_gpu_available(),
+            "environment": _detected_platform,
+            "uptime_seconds": round(time.time() - _start_time, 1),
+        }))
+    except Exception:
+        logger.warning("SSE: failed to collect status", exc_info=True)
+    try:
+        from bannin.llm.tracker import LLMTracker
+        events.append(("llm_usage", LLMTracker.get().get_summary()))
+    except Exception:
+        logger.warning("SSE: failed to collect LLM usage", exc_info=True)
+    try:
+        from bannin.intelligence.history import MetricHistory
+        history = MetricHistory.get()
+        readings = history.get_memory_history(last_n_minutes=5)
+        events.append(("memory_history", {
+            "readings": readings,
+            "count": len(readings),
+            "period_minutes": 5,
+            "total_readings_stored": history.reading_count,
+        }))
+    except Exception:
+        logger.warning("SSE: failed to collect memory history", exc_info=True)
+    try:
+        from bannin.llm.aggregator import compute_health
+        events.append(("health", compute_health()))
+    except Exception:
+        logger.warning("SSE: failed to collect health", exc_info=True)
     try:
         from bannin.llm.ollama import OllamaMonitor
-        ollama = OllamaMonitor.get().get_health()
-        if ollama.get("available"):
-            return ollama.get("vram_pressure")
+        events.append(("ollama", OllamaMonitor.get().get_health()))
     except Exception:
-        pass
-    return None
-
-
-def _score_to_rating(score: float) -> str:
-    """Convert numeric score to rating string."""
-    if score >= 90:
-        return "excellent"
-    if score >= 70:
-        return "good"
-    if score >= 50:
-        return "fair"
-    if score >= 30:
-        return "poor"
-    return "critical"
-
-
-@app.get("/recommendations")
-def recommendations():
-    """L2 actionable recommendations from cross-signal analysis."""
-    from bannin.intelligence.recommendations import build_recommendation_snapshot, generate_recommendations
-    snapshot = build_recommendation_snapshot()
-    return {"recommendations": generate_recommendations(snapshot)}
-
-
-@app.get("/llm/connections")
-def llm_connections():
-    """Auto-detected LLM tools and connections on this system."""
-    from bannin.llm.connections import LLMConnectionScanner
-    return {"connections": LLMConnectionScanner.get().get_connections()}
-
-
-@app.get("/ollama")
-def ollama_status():
-    """Ollama local LLM status -- loaded models, VRAM, availability."""
-    from bannin.llm.ollama import OllamaMonitor
-    return OllamaMonitor.get().get_health()
-
-
-@app.get("/analytics/stats")
-def analytics_stats():
-    """Analytics store statistics -- event counts, DB size, time range."""
-    from bannin.analytics.store import AnalyticsStore
-    return AnalyticsStore.get().get_stats()
-
-
-@app.get("/analytics/events")
-def analytics_events(type: str = "", severity: str = "", since: str = "", limit: int = 100):
-    """Query stored analytics events with optional filters."""
-    from bannin.analytics.store import AnalyticsStore
-    import time as _time
-
-    since_ts = None
-    if since:
-        since_ts = _parse_since(since)
-
-    return {
-        "events": AnalyticsStore.get().query(
-            event_type=type or None,
-            severity=severity or None,
-            since=since_ts,
-            limit=limit,
-        )
-    }
-
-
-@app.get("/analytics/search")
-def analytics_search(q: str = "", limit: int = 50):
-    """Full-text search across stored events."""
-    from bannin.analytics.store import AnalyticsStore
-    if not q:
-        return {"error": "Provide ?q=search+term"}
-    return {"results": AnalyticsStore.get().search(q, limit=limit)}
-
-
-@app.get("/analytics/timeline")
-def analytics_timeline(since: str = "", limit: int = 200):
-    """Event timeline, newest first."""
-    from bannin.analytics.store import AnalyticsStore
-    since_ts = _parse_since(since) if since else None
-    return {"timeline": AnalyticsStore.get().get_timeline(since=since_ts, limit=limit)}
-
-
-@app.post("/chat")
-def chat_endpoint(body: dict):
-    """Chatbot endpoint -- natural language system health assistant."""
-    from bannin.intelligence.chat import chat
-    message = body.get("message", "")
-    return chat(message)
-
-
-def _parse_since(since_str: str) -> float | None:
-    """Parse human time strings like '1h', '30m', '7d' into epoch timestamp."""
-    import time as _time
-    s = since_str.strip().lower()
-    multipliers = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
-    for suffix, mult in multipliers.items():
-        if s.endswith(suffix):
-            try:
-                val = float(s[:-1])
-                return _time.time() - (val * mult)
-            except ValueError:
-                return None
+        logger.warning("SSE: failed to collect Ollama", exc_info=True)
     try:
-        return float(s)
-    except ValueError:
-        return None
+        from bannin.intelligence.recommendations import build_recommendation_snapshot, generate_recommendations
+        snapshot = build_recommendation_snapshot()
+        events.append(("recommendations", {"recommendations": generate_recommendations(snapshot)}))
+    except Exception:
+        logger.warning("SSE: failed to collect recommendations", exc_info=True)
+    try:
+        from bannin.llm.connections import LLMConnectionScanner
+        events.append(("connections", {"connections": LLMConnectionScanner.get().get_connections()}))
+    except Exception:
+        logger.warning("SSE: failed to collect connections", exc_info=True)
+    return events
+
+
+@app.get("/stream")
+async def stream(request: Request) -> StreamingResponse:
+    """Server-Sent Events endpoint -- pushes all dashboard data over a single connection."""
+
+    async def event_generator() -> AsyncGenerator[str, None]:
+        _emit("sse_connect", "agent", "info", "SSE client connected")
+        yield ": connected\n\n"
+
+        last_fast = 0.0
+        last_medium = 0.0
+        last_slow = 0.0
+
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+
+                now = time.time()
+                events: list[tuple[str, dict]] = []
+
+                if now - last_fast >= 3:
+                    last_fast = now
+                    events.extend(await asyncio.to_thread(_collect_fast))
+
+                if now - last_medium >= 8:
+                    last_medium = now
+                    events.extend(await asyncio.to_thread(_collect_medium))
+
+                if now - last_slow >= 15:
+                    last_slow = now
+                    events.extend(await asyncio.to_thread(_collect_slow))
+
+                for event_type, data in events:
+                    yield _sse_event(event_type, data)
+
+                await asyncio.sleep(1)
+        finally:
+            _emit("sse_disconnect", "agent", "info", "SSE client disconnected")
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

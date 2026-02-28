@@ -23,11 +23,14 @@ Key signals:
   - Deep analysis (health + recommendations + history) = high complexity
 """
 
+from __future__ import annotations
+
 import threading
 import time
 import uuid
-from collections import defaultdict
-from typing import Optional
+from collections import defaultdict, deque
+
+from bannin.log import logger
 
 
 # Estimated tokens per tool response (measured from typical JSON payloads)
@@ -48,16 +51,18 @@ _DEFAULT_TOOL_COST = 800  # fallback for unknown tools
 class MCPSessionTracker:
     """Singleton that records MCP tool calls and computes session fatigue."""
 
-    _instance: Optional["MCPSessionTracker"] = None
+    _instance: MCPSessionTracker | None = None
     _lock = threading.Lock()
 
-    def __init__(self):
+    _MAX_TOOL_NAMES = 200
+
+    def __init__(self) -> None:
         self._data_lock = threading.Lock()
         self._session_id: str = str(uuid.uuid4())
         self._client_label: str = "Unknown MCP Client"
-        self._session_start = time.time()
-        self._tool_calls: list[dict] = []
-        self._per_tool_counts: dict[str, int] = defaultdict(int)
+        self._session_start: float = time.time()
+        self._tool_calls: deque = deque(maxlen=5000)
+        self._per_tool_counts: dict[str, int] = {}
         self._total_response_bytes: int = 0
 
     @classmethod
@@ -68,23 +73,26 @@ class MCPSessionTracker:
             return cls._instance
 
     @classmethod
-    def reset(cls):
+    def reset(cls) -> None:
         with cls._lock:
             cls._instance = None
 
-    def set_client_label(self, label: str):
+    def set_client_label(self, label: str) -> None:
         """Set the detected parent client label (e.g., 'Claude Desktop')."""
-        self._client_label = label
+        with self._data_lock:
+            self._client_label = label
 
     @property
     def session_id(self) -> str:
-        return self._session_id
+        with self._data_lock:
+            return self._session_id
 
     @property
     def client_label(self) -> str:
-        return self._client_label
+        with self._data_lock:
+            return self._client_label
 
-    def record_tool_call(self, tool_name: str, response_bytes: int = 0):
+    def record_tool_call(self, tool_name: str, response_bytes: int = 0) -> None:
         """Record a single MCP tool invocation.
 
         Args:
@@ -98,7 +106,10 @@ class MCPSessionTracker:
                 "timestamp": now,
                 "response_bytes": response_bytes,
             })
-            self._per_tool_counts[tool_name] += 1
+            if tool_name in self._per_tool_counts:
+                self._per_tool_counts[tool_name] += 1
+            elif len(self._per_tool_counts) < self._MAX_TOOL_NAMES:
+                self._per_tool_counts[tool_name] = 1
             self._total_response_bytes += response_bytes
 
         # Emit analytics event
@@ -112,7 +123,7 @@ class MCPSessionTracker:
                 "data": {"tool": tool_name},
             })
         except Exception:
-            pass
+            logger.debug("Failed to emit MCP tool call analytics event")
 
     def _estimate_tokens(self, calls: list[dict], session_minutes: float) -> dict:
         """Estimate total token consumption from observable signals.
@@ -225,9 +236,11 @@ class MCPSessionTracker:
         with self._data_lock:
             calls = list(self._tool_calls)
             per_tool = dict(self._per_tool_counts)
+            session_start = self._session_start
+            client_label = self._client_label
 
         now = time.time()
-        session_minutes = (now - self._session_start) / 60
+        session_minutes = (now - session_start) / 60
         total_calls = len(calls)
 
         # --- Component 1: Tool call burden ---
@@ -276,11 +289,11 @@ class MCPSessionTracker:
         # --- Component 4: Tool call frequency trend ---
         frequency_score = 0
         if total_calls >= 6:
-            mid_time = self._session_start + (now - self._session_start) / 2
+            mid_time = session_start + (now - session_start) / 2
             first_half = [c for c in calls if c["timestamp"] < mid_time]
             second_half = [c for c in calls if c["timestamp"] >= mid_time]
 
-            half_duration = (now - self._session_start) / 2 / 60
+            half_duration = (now - session_start) / 2 / 60
             if half_duration > 0:
                 first_rate = len(first_half) / half_duration
                 second_rate = len(second_half) / half_duration
@@ -337,7 +350,7 @@ class MCPSessionTracker:
                         duration_score = 100
                     duration_score = min(100, duration_score)
         except Exception:
-            pass
+            logger.debug("JSONL session reader unavailable for real token data")
 
         # --- Component 5: Context pressure ---
         cp = estimated_context_percent
@@ -391,7 +404,7 @@ class MCPSessionTracker:
 
         result = {
             "session_id": self._session_id,
-            "client_label": self._client_label,
+            "client_label": client_label,
             "session_fatigue": fatigue,
             "context_pressure": round(context_pressure, 1),
             "tool_call_burden": round(burden_score, 1),
@@ -416,14 +429,18 @@ class MCPSessionTracker:
         with self._data_lock:
             per_tool = dict(self._per_tool_counts)
             total = len(self._tool_calls)
+            session_start = self._session_start
+            client_label = self._client_label
+            total_response_bytes = self._total_response_bytes
 
         return {
             "session_id": self._session_id,
-            "client_label": self._client_label,
-            "session_start": self._session_start,
-            "session_duration_minutes": round((time.time() - self._session_start) / 60, 1),
+            "client_label": client_label,
+            "session_start": session_start,
+            "session_duration_minutes": round((time.time() - session_start) / 60, 1),
             "total_tool_calls": total,
             "per_tool_counts": per_tool,
+            "total_response_bytes": total_response_bytes,
         }
 
     def get_push_payload(self) -> dict:

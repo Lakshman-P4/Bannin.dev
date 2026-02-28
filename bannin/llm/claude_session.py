@@ -14,11 +14,15 @@ This module reads these files incrementally (binary seek, only new bytes)
 and provides real health metrics to replace MCP session token estimation.
 """
 
+from __future__ import annotations
+
 import json
 import threading
 import time
+from collections import deque
 from pathlib import Path
-from typing import Optional
+
+from bannin.log import logger
 
 
 def _path_to_slug(path: str) -> str:
@@ -38,10 +42,10 @@ class ClaudeSessionReader:
     and provides structured health data on demand.
     """
 
-    _instance: Optional["ClaudeSessionReader"] = None
+    _instance: ClaudeSessionReader | None = None
     _lock = threading.Lock()
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._data_lock = threading.Lock()
         self._session_file: Path | None = None
         self._file_pos: int = 0
@@ -61,15 +65,17 @@ class ClaudeSessionReader:
         self._total_output_tokens: int = 0
         self._total_cache_read: int = 0
         self._total_cache_write: int = 0
-        self._context_sizes: list[int] = []  # Context size per API call
+        self._context_sizes: deque[int] = deque(maxlen=5000)
 
-        # Content analysis
+        # Content analysis (bounded to 500 unique tool names)
         self._tool_use_counts: dict[str, int] = {}
+        self._max_tool_names: int = 500
         self._thinking_chars: int = 0
         self._output_chars: int = 0
 
         # Background thread
         self._running = False
+        self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
 
     @classmethod
@@ -80,7 +86,7 @@ class ClaudeSessionReader:
             return cls._instance
 
     @classmethod
-    def reset(cls):
+    def reset(cls) -> None:
         with cls._lock:
             if cls._instance:
                 cls._instance.stop()
@@ -110,11 +116,16 @@ class ClaudeSessionReader:
                     return jsonl_files[0]
 
         # Fallback: most recently modified JSONL across all projects
+        # Cap traversal to prevent unbounded I/O on large ~/.claude/projects/
         best: Path | None = None
         best_mtime = 0.0
+        projects_scanned = 0
         for project in projects_dir.iterdir():
             if not project.is_dir():
                 continue
+            projects_scanned += 1
+            if projects_scanned > 50:
+                break
             for jf in project.glob("*.jsonl"):
                 try:
                     mt = jf.stat().st_mtime
@@ -125,19 +136,19 @@ class ClaudeSessionReader:
                     continue
         return best
 
-    def start(self, cwd: str | None = None, interval: float = 10.0):
+    def start(self, cwd: str | None = None, interval: float = 10.0) -> None:
         """Start background monitoring of the active session file."""
-        if self._running:
-            return
-
+        # Discover session file outside lock (filesystem I/O can block)
         session_file = self.discover_session(cwd)
         if not session_file:
             return
 
         with self._data_lock:
+            if self._running:
+                return
             self._session_file = session_file
+            self._running = True
 
-        self._running = True
         self._thread = threading.Thread(
             target=self._monitor_loop,
             args=(interval,),
@@ -145,35 +156,41 @@ class ClaudeSessionReader:
         )
         self._thread.start()
 
-    def stop(self):
-        self._running = False
+    def stop(self) -> None:
+        with self._data_lock:
+            self._running = False
+        self._stop_event.set()
 
     @property
     def session_file(self) -> Path | None:
         with self._data_lock:
             return self._session_file
 
-    def _monitor_loop(self, interval: float):
+    def _monitor_loop(self, interval: float) -> None:
         self._read_new_lines()
-        while self._running:
-            time.sleep(interval)
+        while not self._stop_event.is_set():
+            self._stop_event.wait(timeout=interval)
+            if self._stop_event.is_set():
+                break
             self._read_new_lines()
 
-    def _read_new_lines(self):
+    def _read_new_lines(self) -> None:
         """Incrementally read new bytes from the JSONL file (binary mode)."""
         with self._data_lock:
             sf = self._session_file
+            file_pos = self._file_pos
         if not sf or not sf.exists():
             return
 
         try:
             fsize = sf.stat().st_size
-            if fsize <= self._file_pos:
+            if fsize <= file_pos:
                 return
 
             with open(sf, "rb") as f:
-                f.seek(self._file_pos)
-                raw = f.read()
+                f.seek(file_pos)
+                # Cap each read to 10MB to prevent memory spikes on huge transcripts
+                raw = f.read(10 * 1024 * 1024)
 
             if not raw:
                 return
@@ -186,7 +203,8 @@ class ClaudeSessionReader:
                 return  # No complete line yet
 
             complete = raw[: last_newline + 1]
-            self._file_pos += len(complete)
+            with self._data_lock:
+                self._file_pos = file_pos + len(complete)
 
             text = complete.decode("utf-8", errors="replace")
             for line in text.split("\n"):
@@ -199,7 +217,7 @@ class ClaudeSessionReader:
                 except json.JSONDecodeError:
                     continue
         except Exception:
-            pass
+            logger.debug("JSONL session file read failed", exc_info=True)
 
     def _parse_timestamp(self, ts: str) -> float | None:
         try:
@@ -209,7 +227,7 @@ class ClaudeSessionReader:
         except (ValueError, TypeError):
             return None
 
-    def _process_entry(self, entry: dict):
+    def _process_entry(self, entry: dict) -> None:
         """Process a single JSONL entry and update accumulated state."""
         entry_type = entry.get("type")
         if not entry_type:
@@ -277,9 +295,10 @@ class ClaudeSessionReader:
                                 self._output_chars += len(t)
                         elif bt == "tool_use":
                             name = block.get("name", "unknown")
-                            self._tool_use_counts[name] = (
-                                self._tool_use_counts.get(name, 0) + 1
-                            )
+                            if name in self._tool_use_counts or len(self._tool_use_counts) < self._max_tool_names:
+                                self._tool_use_counts[name] = (
+                                    self._tool_use_counts.get(name, 0) + 1
+                                )
 
     def get_real_health_data(self) -> dict | None:
         """Get real health metrics from the JSONL session.
@@ -307,6 +326,9 @@ class ClaudeSessionReader:
             context_growth_rate: int | None (tokens per API call)
             api_calls: int (number of API round-trips)
         """
+        # Import outside lock to avoid potential deadlock with import lock
+        from bannin.llm.pricing import get_context_window
+
         with self._data_lock:
             if self._assistant_messages == 0:
                 return None
@@ -315,12 +337,11 @@ class ClaudeSessionReader:
             context_window = 200000
             if self._model:
                 try:
-                    from bannin.llm.pricing import get_context_window
                     cw = get_context_window(self._model)
                     if cw:
                         context_window = cw
                 except Exception:
-                    pass
+                    logger.debug("Context window lookup failed for model: %s", self._model)
 
             # Real context usage
             context_percent = 0.0

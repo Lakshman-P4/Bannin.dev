@@ -1,0 +1,112 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String    @id @default(uuid())
+  username       String    @unique
+  displayName    String
+  email          String?   @unique
+  passwordHash   String
+  emailVerified  Boolean   @default(false)
+  verifyToken    String?   @unique
+  verifyTokenExp DateTime?
+  resetToken     String?   @unique
+  resetTokenExp  DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  agents         Agent[]
+  pushSubs       PushSubscription[]
+
+  @@index([username])
+  @@index([email])
+}
+
+model Agent {
+  id           String           @id @default(uuid())
+  userId       String
+  name         String
+  apiKeyHash   String           @unique
+  keyPrefix    String
+  hostname     String?
+  os           String?
+  agentVersion String?
+  lastSeen     DateTime?
+  isOnline     Boolean          @default(false)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  snapshots    MetricSnapshot[]
+  events       Event[]
+  alerts       AlertHistory[]
+
+  @@index([userId])
+  @@index([keyPrefix])
+}
+
+model MetricSnapshot {
+  id        String   @id @default(uuid())
+  agentId   String
+  timestamp DateTime @default(now())
+  cpu       Float
+  memory    Float
+  disk      Float
+  gpu       Float?
+  gpuMemory Float?
+  network   Json?
+  processes Json?
+  raw       Json?
+  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId, timestamp])
+}
+
+model Event {
+  id        String   @id @default(uuid())
+  agentId   String
+  type      String
+  source    String   @default("agent")
+  severity  String?
+  message   String
+  data      Json?
+  timestamp DateTime @default(now())
+  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId, timestamp])
+  @@index([agentId, type])
+  @@index([type])
+  @@index([severity])
+  @@index([timestamp])
+}
+
+model AlertHistory {
+  id           String    @id @default(uuid())
+  agentId      String
+  severity     String
+  message      String
+  value        Float?
+  threshold    Float?
+  acknowledged Boolean   @default(false)
+  firedAt      DateTime  @default(now())
+  resolvedAt   DateTime?
+  agent        Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId, firedAt])
+  @@index([agentId, severity])
+}
+
+model PushSubscription {
+  id        String   @id @default(uuid())
+  userId    String
+  endpoint  String   @unique
+  keys      Json
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}

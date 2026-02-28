@@ -2,9 +2,11 @@
 
 On Windows, psutil.process_iter is expensive (~8 seconds for 300+ processes
 on a memory-constrained machine). To avoid blocking API responses and burning
-CPU, we scan processes in a background thread every 15 seconds and serve
-cached results to all callers.
+CPU, we scan processes in a background thread every 15 seconds (configurable)
+and serve cached results to all callers.
 """
+
+from __future__ import annotations
 
 import os
 import time
@@ -13,6 +15,8 @@ from collections import defaultdict
 
 import psutil
 
+from bannin.log import logger
+
 _own_pid = os.getpid()
 
 from bannin.core.process_names import (
@@ -20,6 +24,7 @@ from bannin.core.process_names import (
 )
 
 _cpu_primed = False
+_cpu_prime_lock = threading.Lock()
 
 # Background scan results — updated every 15 seconds by _bg_scan_loop
 _bg_lock = threading.Lock()
@@ -30,31 +35,59 @@ _bg_count_data = {"total": 0, "running": 0, "sleeping": 0}
 _bg_ready = False           # True after first scan completes
 
 
-def _ensure_cpu_primed():
+def _ensure_cpu_primed() -> None:
     global _cpu_primed
-    if not _cpu_primed:
+    with _cpu_prime_lock:
+        if _cpu_primed:
+            return
         for proc in psutil.process_iter(["cpu_percent"]):
             pass
         time.sleep(0.1)
         _cpu_primed = True
 
 
-def start_background_scanner(interval: int = 30):
-    """Start the background process scanner thread."""
-    t = threading.Thread(target=_bg_scan_loop, args=(interval,), daemon=True)
+_scanner_started = False
+_scanner_lock = threading.Lock()
+_scanner_stop = threading.Event()
+_scanner_thread: threading.Thread | None = None
+
+
+def start_background_scanner(interval: int = 15) -> None:
+    """Start the background process scanner thread. Idempotent."""
+    global _scanner_started, _scanner_thread
+    with _scanner_lock:
+        if _scanner_started:
+            return
+        _scanner_started = True
+        _scanner_stop.clear()
+        t = threading.Thread(target=_bg_scan_loop, args=(interval,), daemon=True)
+        _scanner_thread = t
     t.start()
 
 
-def _bg_scan_loop(interval: int):
+def stop_background_scanner() -> None:
+    """Signal the background scanner to stop. Used for clean shutdown."""
+    global _scanner_started, _scanner_thread
+    _scanner_stop.set()
+    with _scanner_lock:
+        thread = _scanner_thread
+        _scanner_started = False
+        _scanner_thread = None
+    if thread is not None:
+        thread.join(timeout=5)
+
+
+def _bg_scan_loop(interval: int) -> None:
     """Background loop: scan processes, build grouped data, cache it all."""
     global _bg_scan_data, _bg_grouped_data, _bg_breakdown_data, _bg_count_data, _bg_ready
 
     _ensure_cpu_primed()
 
-    while True:
+    while not _scanner_stop.is_set():
+        scan_start = time.time()
         try:
             # 1. Scan all processes (the expensive part)
-            attrs = ["pid", "name", "cpu_percent", "memory_percent", "status"]
+            attrs = ["pid", "name", "cpu_percent", "memory_percent", "status", "cmdline"]
             raw = []
             for proc in psutil.process_iter(attrs):
                 try:
@@ -67,18 +100,25 @@ def _bg_scan_loop(interval: int):
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     continue
 
-            # 2. Build grouped data
+            # 2. Feed training detector
+            try:
+                from bannin.intelligence.training import TrainingDetector
+                TrainingDetector.get().update_from_scan(raw)
+            except Exception:
+                logger.debug("Training detector update failed", exc_info=True)
+
+            # 3. Build grouped data
             grouped = _build_grouped(raw)
 
-            # 3. Build breakdown
+            # 4. Build breakdown
             breakdown = _build_breakdown(grouped)
 
-            # 4. Build count
+            # 5. Build count
             running = sum(1 for p in raw if p.get("status") == psutil.STATUS_RUNNING)
             sleeping = sum(1 for p in raw if p.get("status") == psutil.STATUS_SLEEPING)
             count = {"total": len(raw), "running": running, "sleeping": sleeping}
 
-            # 5. Swap in new data atomically
+            # 6. Swap in new data atomically
             with _bg_lock:
                 _bg_scan_data = raw
                 _bg_grouped_data = grouped
@@ -87,14 +127,23 @@ def _bg_scan_loop(interval: int):
                 _bg_ready = True
 
         except Exception:
-            pass
+            logger.warning("Background process scanner error", exc_info=True)
 
-        time.sleep(interval)
+        elapsed = time.time() - scan_start
+        _scanner_stop.wait(timeout=max(0, interval - elapsed))
 
 
-def _build_grouped(raw: list) -> list[dict]:
+_total_mem_mb: float = 0.0
+_total_mem_lock = threading.Lock()
+
+
+def _build_grouped(raw: list[dict]) -> list[dict]:
     """Build grouped process list from raw scan data."""
-    total_mem_mb = psutil.virtual_memory().total / (1024 * 1024)
+    global _total_mem_mb
+    with _total_mem_lock:
+        if _total_mem_mb == 0.0:
+            _total_mem_mb = psutil.virtual_memory().total / (1024 * 1024)
+        total_mem_mb = _total_mem_mb
 
     groups = defaultdict(lambda: {
         "friendly_name": "",
@@ -130,7 +179,8 @@ def _build_grouped(raw: list) -> list[dict]:
         g["memory_mb"] += (mem_pct / 100.0) * total_mem_mb
         g["memory_percent"] += mem_pct
         g["instance_count"] += 1
-        g["pids"].append(proc["pid"])
+        if len(g["pids"]) < 500:
+            g["pids"].append(proc["pid"])
 
     result = []
     for g in groups.values():
@@ -152,7 +202,7 @@ def _build_grouped(raw: list) -> list[dict]:
     return result
 
 
-def _build_breakdown(grouped: list) -> dict:
+def _build_breakdown(grouped: list[dict]) -> dict:
     """Build top-3 CPU and RAM breakdown from grouped data."""
     by_cpu = sorted(grouped, key=lambda p: p["cpu_percent"], reverse=True)
     top_cpu = []
@@ -181,8 +231,15 @@ def _build_breakdown(grouped: list) -> dict:
 
 # --- Public API (all instant — just reads from cached background data) ---
 
+def is_scanner_ready() -> bool:
+    """Return True after the background scanner has completed at least one scan."""
+    with _bg_lock:
+        return _bg_ready
+
+
 def get_top_processes(limit: int = 10) -> list[dict]:
     """Raw process list for MCP server."""
+    limit = max(1, min(limit, 1000))
     with _bg_lock:
         data = _bg_scan_data
 
@@ -205,10 +262,118 @@ def get_process_count() -> dict:
 
 
 def get_grouped_processes(limit: int = 15) -> list[dict]:
+    limit = max(1, min(limit, 1000))
     with _bg_lock:
-        return _bg_grouped_data[:limit]
+        return [{**item, "pids": list(item.get("pids", []))} for item in _bg_grouped_data[:limit]]
 
 
 def get_resource_breakdown() -> dict:
     with _bg_lock:
-        return dict(_bg_breakdown_data)
+        return {
+            "cpu": [dict(item) for item in _bg_breakdown_data.get("cpu", [])],
+            "ram": [dict(item) for item in _bg_breakdown_data.get("ram", [])],
+        }
+
+
+# --- Process kill ---
+
+# System-critical PIDs that must never be killed
+_PROTECTED_NAMES: set[str] = {
+    "system", "system idle process", "registry", "csrss.exe", "wininit.exe",
+    "services.exe", "lsass.exe", "smss.exe", "winlogon.exe", "explorer.exe",
+    "dwm.exe", "svchost.exe",
+    "kernel_task", "launchd", "windowserver", "loginwindow",
+    "systemd", "init",
+}
+
+
+def kill_process(pid: int) -> dict:
+    """Attempt to kill a process by PID.
+
+    Returns dict with status, message, and process info.
+    Refuses to kill system processes, PID 0, or Bannin itself.
+    """
+    if pid <= 0:
+        return {"status": "error", "message": "Invalid PID"}
+
+    if pid == _own_pid:
+        return {"status": "error", "message": "Cannot kill the Bannin agent"}
+
+    try:
+        proc = psutil.Process(pid)
+        proc_name = proc.name().lower()
+        create_time = proc.create_time()
+
+        if proc_name in _PROTECTED_NAMES:
+            return {
+                "status": "error",
+                "message": f"Cannot kill protected system process: {proc.name()}",
+            }
+
+        friendly, category = get_friendly_name(proc.name())
+
+        # Re-check identity immediately before terminate (mitigate PID reuse TOCTOU)
+        # Verify both name and create_time to detect recycled PIDs
+        current_name = proc.name().lower()
+        if current_name in _PROTECTED_NAMES:
+            return {
+                "status": "error",
+                "message": f"Cannot kill protected system process: {proc.name()}",
+            }
+        if proc.create_time() != create_time:
+            return {
+                "status": "error",
+                "message": f"PID {pid} was recycled (process changed identity)",
+            }
+
+        proc.terminate()
+
+        # Wait up to 3 seconds for graceful shutdown
+        try:
+            proc.wait(timeout=3)
+        except psutil.TimeoutExpired:
+            proc.kill()
+
+        return {
+            "status": "ok",
+            "message": f"Killed {friendly} (PID {pid})",
+            "process": {"pid": pid, "name": friendly, "category": category},
+        }
+
+    except psutil.NoSuchProcess:
+        return {"status": "error", "message": f"Process {pid} not found"}
+    except psutil.AccessDenied:
+        return {"status": "error", "message": f"Access denied: cannot kill PID {pid}"}
+    except Exception as exc:
+        logger.warning("Failed to kill PID %d: %s", pid, exc, exc_info=True)
+        return {"status": "error", "message": f"Failed to kill PID {pid}: {exc}"}
+
+
+def get_child_processes(pid: int, limit: int = 200) -> list[dict]:
+    """Get child processes of a given PID with resource usage."""
+    limit = max(1, min(limit, 1000))
+    try:
+        parent = psutil.Process(pid)
+        children = parent.children(recursive=True)
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        return []
+
+    total_mem_mb = psutil.virtual_memory().total / (1024 * 1024)
+    result = []
+    for child in children[:limit]:
+        try:
+            info = child.as_dict(attrs=["pid", "name", "cpu_percent", "memory_percent", "status"])
+            mem_pct = info.get("memory_percent") or 0
+            result.append({
+                "pid": info["pid"],
+                "name": info.get("name", ""),
+                "cpu_percent": round(info.get("cpu_percent") or 0, 1),
+                "memory_mb": round((mem_pct / 100.0) * total_mem_mb, 1),
+                "memory_percent": round(mem_pct, 1),
+                "status": info.get("status", ""),
+            })
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+
+    result.sort(key=lambda p: (p["cpu_percent"] + p["memory_percent"]), reverse=True)
+    return result

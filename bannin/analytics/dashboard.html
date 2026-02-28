@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Bannin Analytics</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" integrity="sha384-vsrfeLOOY6KuIYKDlmVH5UiBmgIdB1oEf7p01YgWHuqmOHfZr374+odEv96n9tNC" crossorigin="anonymous"></script>
 <style>
 :root {
   --bg: #0a0a0f;
@@ -25,13 +25,13 @@ body {
   min-height: 100vh;
   padding: 24px;
 }
-.header {
+header {
   display: flex;
   align-items: center;
   gap: 16px;
   margin-bottom: 24px;
 }
-.header h1 {
+header h1 {
   font-size: 24px;
   font-weight: 600;
   background: linear-gradient(135deg, var(--accent), var(--blue));
@@ -79,7 +79,7 @@ body {
   font-size: 14px;
 }
 .search-bar button:hover { opacity: 0.9; }
-.filters {
+nav.filters {
   display: flex;
   gap: 8px;
   margin-bottom: 20px;
@@ -95,6 +95,7 @@ body {
   cursor: pointer;
 }
 .filter-btn.active { border-color: var(--accent); color: var(--accent); }
+.filter-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -117,13 +118,13 @@ body {
   letter-spacing: 0.5px;
 }
 .card canvas { width: 100% !important; height: 200px !important; }
-.timeline {
+section.timeline {
   background: var(--card);
   border: 1px solid var(--card-border);
   border-radius: 12px;
   padding: 20px;
 }
-.timeline h3 {
+section.timeline h3 {
   font-size: 14px;
   font-weight: 500;
   color: var(--text-dim);
@@ -171,6 +172,16 @@ body {
   padding: 40px;
   color: var(--text-dim);
 }
+.error-banner {
+  background: rgba(239,68,68,0.15);
+  border: 1px solid rgba(239,68,68,0.3);
+  border-radius: 8px;
+  padding: 10px 16px;
+  margin-bottom: 16px;
+  color: var(--red);
+  font-size: 13px;
+  display: none;
+}
 @media (max-width: 768px) {
   .grid { grid-template-columns: 1fr; }
 }
@@ -178,87 +189,120 @@ body {
 </head>
 <body>
 
-<div class="header">
+<header>
   <h1>Bannin Analytics</h1>
+</header>
+
+<div class="error-banner" id="error-banner" role="alert" aria-live="polite"></div>
+
+<div class="stats-bar" id="stats-bar" role="status" aria-live="polite" aria-label="Analytics statistics"></div>
+
+<div class="search-bar" role="search">
+  <input type="text" id="search-input" placeholder="Search events... (e.g., RAM, OOM, Chrome, model loaded)" aria-label="Search events">
+  <button id="search-btn" type="button" aria-label="Search">Search</button>
 </div>
 
-<div class="stats-bar" id="stats-bar"></div>
-
-<div class="search-bar">
-  <input type="text" id="search-input" placeholder="Search events... (e.g., RAM, OOM, Chrome, model loaded)">
-  <button onclick="doSearch()">Search</button>
-</div>
-
-<div class="filters">
-  <button class="filter-btn active" data-filter="all" onclick="setFilter('all', this)">All</button>
-  <button class="filter-btn" data-filter="alert" onclick="setFilter('alert', this)">Alerts</button>
-  <button class="filter-btn" data-filter="metric_snapshot" onclick="setFilter('metric_snapshot', this)">Metrics</button>
-  <button class="filter-btn" data-filter="llm_call" onclick="setFilter('llm_call', this)">LLM Calls</button>
-  <button class="filter-btn" data-filter="mcp_tool_call" onclick="setFilter('mcp_tool_call', this)">MCP</button>
-  <button class="filter-btn" data-filter="ollama_model_load" onclick="setFilter('ollama', this)">Ollama</button>
-  <button class="filter-btn" data-filter="session_start" onclick="setFilter('session', this)">Sessions</button>
-</div>
+<nav class="filters" aria-label="Event type filters">
+  <button class="filter-btn active" data-filter="all" aria-pressed="true" type="button">All</button>
+  <button class="filter-btn" data-filter="alert" aria-pressed="false" type="button">Alerts</button>
+  <button class="filter-btn" data-filter="metric_snapshot" aria-pressed="false" type="button">Metrics</button>
+  <button class="filter-btn" data-filter="llm_call" aria-pressed="false" type="button">LLM Calls</button>
+  <button class="filter-btn" data-filter="mcp_tool_call" aria-pressed="false" type="button">MCP</button>
+  <button class="filter-btn" data-filter="ollama" aria-pressed="false" type="button">Ollama</button>
+  <button class="filter-btn" data-filter="session_start" aria-pressed="false" type="button">Sessions</button>
+</nav>
 
 <div class="grid">
-  <div class="card">
+  <section class="card" aria-label="System metrics chart">
     <h3>System Metrics (Last Hour)</h3>
-    <canvas id="metrics-chart"></canvas>
-  </div>
-  <div class="card">
+    <canvas id="metrics-chart" role="img" aria-label="CPU and RAM usage over the last hour"></canvas>
+  </section>
+  <section class="card" aria-label="LLM cost chart">
     <h3>LLM Cost (Last 7 Days)</h3>
-    <canvas id="cost-chart"></canvas>
-  </div>
+    <canvas id="cost-chart" role="img" aria-label="LLM cost trend over the last 7 days"></canvas>
+  </section>
 </div>
 
-<div class="timeline">
+<section class="timeline" aria-label="Event timeline">
   <h3>Event Timeline</h3>
-  <div id="timeline-content">
+  <div id="timeline-content" aria-live="polite">
     <div class="empty-state">Loading events...</div>
   </div>
-</div>
+</section>
 
 <script>
+(function() {
+"use strict";
+
 const API = window.location.origin;
 let currentFilter = 'all';
 let metricsChart = null;
 let costChart = null;
+let refreshInterval = null;
+
+function esc(s) {
+  if (s == null) return '';
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
 
 async function fetchJSON(url) {
   try {
     const res = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    hideError();
     return await res.json();
-  } catch (e) { return null; }
+  } catch (e) {
+    showError('Connection lost. Retrying...');
+    return null;
+  }
+}
+
+function showError(msg) {
+  const el = document.getElementById('error-banner');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+function hideError() {
+  const el = document.getElementById('error-banner');
+  el.style.display = 'none';
 }
 
 function formatTime(ts) {
   if (!ts) return '';
   const d = new Date(ts);
+  if (isNaN(d.getTime())) return '';
   return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
 function severityBadge(sev) {
-  const cls = sev === 'critical' ? 'badge-critical' :
-              sev === 'warning' ? 'badge-warning' :
-              sev === 'info' ? 'badge-info' : 'badge-default';
-  return `<span class="event-badge ${cls}">${sev || '-'}</span>`;
+  const SAFE_SEV = { critical: 'badge-critical', warning: 'badge-warning', info: 'badge-info' };
+  const cls = SAFE_SEV[sev] || 'badge-default';
+  return '<span class="event-badge ' + cls + '">' + esc(sev || '-') + '</span>';
 }
 
 async function loadStats() {
-  const data = await fetchJSON(`${API}/stats`);
+  const data = await fetchJSON(API + '/stats');
   if (!data) return;
 
   const bar = document.getElementById('stats-bar');
-  bar.innerHTML = `
-    <div class="stat-chip">Total Events: <span class="value">${(data.total_events || 0).toLocaleString()}</span></div>
-    <div class="stat-chip">DB Size: <span class="value">${data.db_size_mb || 0} MB</span></div>
-    <div class="stat-chip">FTS5: <span class="value">${data.fts_available ? 'Yes' : 'No'}</span></div>
-    ${data.oldest_event ? `<div class="stat-chip">Since: <span class="value">${formatTime(data.oldest_event)}</span></div>` : ''}
-  `;
+  const totalEvents = esc(String((data.total_events || 0).toLocaleString()));
+  const dbSize = esc(String(data.db_size_mb || 0));
+  const fts = data.fts_available ? 'Yes' : 'No';
+  let html = '<div class="stat-chip">Total Events: <span class="value">' + totalEvents + '</span></div>'
+    + '<div class="stat-chip">DB Size: <span class="value">' + dbSize + ' MB</span></div>'
+    + '<div class="stat-chip">FTS5: <span class="value">' + esc(fts) + '</span></div>';
+  if (data.oldest_event) {
+    html += '<div class="stat-chip">Since: <span class="value">' + esc(formatTime(data.oldest_event)) + '</span></div>';
+  }
+  bar.innerHTML = html;
 }
 
 async function loadTimeline() {
   const container = document.getElementById('timeline-content');
-  let url = `${API}/timeline?since=24h&limit=200`;
+  let url = API + '/timeline?since=24h&limit=200';
 
   if (currentFilter !== 'all') {
     if (currentFilter === 'ollama') {
@@ -266,7 +310,7 @@ async function loadTimeline() {
     } else if (currentFilter === 'session') {
       url += '&types=session_start,session_stop';
     } else {
-      url += `&types=${currentFilter}`;
+      url += '&types=' + encodeURIComponent(currentFilter);
     }
   }
 
@@ -276,27 +320,27 @@ async function loadTimeline() {
     return;
   }
 
-  container.innerHTML = data.timeline.map(e => `
-    <div class="event-row">
-      <span class="event-time">${formatTime(e.timestamp)}</span>
-      ${severityBadge(e.severity)}
-      <span class="event-type">${e.type || ''}</span>
-      <span class="event-msg">${e.message || ''}</span>
-    </div>
-  `).join('');
+  container.innerHTML = data.timeline.map(function(e) {
+    return '<div class="event-row">'
+      + '<span class="event-time">' + esc(formatTime(e.timestamp)) + '</span>'
+      + severityBadge(e.severity)
+      + '<span class="event-type">' + esc(e.type || '') + '</span>'
+      + '<span class="event-msg">' + esc(e.message || '') + '</span>'
+      + '</div>';
+  }).join('');
 }
 
 async function loadMetricsChart() {
-  const data = await fetchJSON(`${API}/events?type=metric_snapshot&since=1h&limit=100`);
+  const data = await fetchJSON(API + '/events?type=metric_snapshot&since=1h&limit=100');
   if (!data || !data.events || data.events.length === 0) return;
 
   const events = data.events.reverse();
-  const labels = events.map(e => {
+  const labels = events.map(function(e) {
     const d = new Date(e.timestamp);
     return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
   });
-  const cpuData = events.map(e => (e.data || {}).cpu_percent || 0);
-  const ramData = events.map(e => (e.data || {}).ram_percent || 0);
+  const cpuData = events.map(function(e) { return (e.data || {}).cpu_percent || 0; });
+  const ramData = events.map(function(e) { return (e.data || {}).ram_percent || 0; });
 
   const ctx = document.getElementById('metrics-chart').getContext('2d');
   if (metricsChart) metricsChart.destroy();
@@ -304,7 +348,7 @@ async function loadMetricsChart() {
   metricsChart = new Chart(ctx, {
     type: 'line',
     data: {
-      labels,
+      labels: labels,
       datasets: [
         { label: 'CPU %', data: cpuData, borderColor: '#60a5fa', backgroundColor: 'rgba(96,165,250,0.1)', fill: true, tension: 0.3, pointRadius: 0 },
         { label: 'RAM %', data: ramData, borderColor: '#6ee7b7', backgroundColor: 'rgba(110,231,183,0.1)', fill: true, tension: 0.3, pointRadius: 0 },
@@ -323,7 +367,7 @@ async function loadMetricsChart() {
 }
 
 async function loadCostChart() {
-  const data = await fetchJSON(`${API}/cost?days=7`);
+  const data = await fetchJSON(API + '/cost?days=7');
   if (!data || !data.cost_trend || data.cost_trend.length === 0) {
     const ctx = document.getElementById('cost-chart').getContext('2d');
     if (costChart) costChart.destroy();
@@ -335,8 +379,8 @@ async function loadCostChart() {
     return;
   }
 
-  const labels = data.cost_trend.map(d => d.day);
-  const costs = data.cost_trend.map(d => d.total_cost || 0);
+  const labels = data.cost_trend.map(function(d) { return d.day; });
+  const costs = data.cost_trend.map(function(d) { return d.total_cost || 0; });
 
   const ctx = document.getElementById('cost-chart').getContext('2d');
   if (costChart) costChart.destroy();
@@ -344,7 +388,7 @@ async function loadCostChart() {
   costChart = new Chart(ctx, {
     type: 'bar',
     data: {
-      labels,
+      labels: labels,
       datasets: [{
         label: 'Cost ($)',
         data: costs,
@@ -360,7 +404,7 @@ async function loadCostChart() {
       plugins: { legend: { display: false } },
       scales: {
         x: { ticks: { color: '#8888a0', font: { size: 10 } }, grid: { display: false } },
-        y: { ticks: { color: '#8888a0', font: { size: 10 }, callback: v => '$' + v.toFixed(2) }, grid: { color: 'rgba(255,255,255,0.04)' } }
+        y: { ticks: { color: '#8888a0', font: { size: 10 }, callback: function(v) { return '$' + v.toFixed(2); } }, grid: { color: 'rgba(255,255,255,0.04)' } }
       }
     }
   });
@@ -368,8 +412,12 @@ async function loadCostChart() {
 
 function setFilter(filter, btn) {
   currentFilter = filter;
-  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.filter-btn').forEach(function(b) {
+    b.classList.remove('active');
+    b.setAttribute('aria-pressed', 'false');
+  });
   btn.classList.add('active');
+  btn.setAttribute('aria-pressed', 'true');
   loadTimeline();
 }
 
@@ -378,38 +426,60 @@ async function doSearch() {
   if (!q) { loadTimeline(); return; }
 
   const container = document.getElementById('timeline-content');
-  const data = await fetchJSON(`${API}/search?q=${encodeURIComponent(q)}&limit=100`);
+  const data = await fetchJSON(API + '/search?q=' + encodeURIComponent(q) + '&limit=100');
   if (!data || !data.results || data.results.length === 0) {
-    container.innerHTML = `<div class="empty-state">No results for "${q}"</div>`;
+    container.innerHTML = '<div class="empty-state">No results for "' + esc(q) + '"</div>';
     return;
   }
 
-  container.innerHTML = data.results.map(e => `
-    <div class="event-row">
-      <span class="event-time">${formatTime(e.timestamp)}</span>
-      ${severityBadge(e.severity)}
-      <span class="event-type">${e.type || ''}</span>
-      <span class="event-msg">${e.message || ''}</span>
-    </div>
-  `).join('');
+  container.innerHTML = data.results.map(function(e) {
+    return '<div class="event-row">'
+      + '<span class="event-time">' + esc(formatTime(e.timestamp)) + '</span>'
+      + severityBadge(e.severity)
+      + '<span class="event-type">' + esc(e.type || '') + '</span>'
+      + '<span class="event-msg">' + esc(e.message || '') + '</span>'
+      + '</div>';
+  }).join('');
 }
 
-document.getElementById('search-input').addEventListener('keydown', e => {
+// Event delegation for filter buttons
+document.querySelector('nav.filters').addEventListener('click', function(e) {
+  const btn = e.target.closest('.filter-btn');
+  if (!btn) return;
+  setFilter(btn.dataset.filter, btn);
+});
+
+// Search button and Enter key
+document.getElementById('search-btn').addEventListener('click', doSearch);
+document.getElementById('search-input').addEventListener('keydown', function(e) {
   if (e.key === 'Enter') doSearch();
 });
 
-// Initial load
-loadStats();
-loadTimeline();
-loadMetricsChart();
-loadCostChart();
-
-// Refresh every 30 seconds
-setInterval(() => {
+// Lifecycle: pause polling when tab is hidden
+function startPolling() {
   loadStats();
   loadTimeline();
   loadMetricsChart();
-}, 30000);
+  loadCostChart();
+  if (refreshInterval) clearInterval(refreshInterval);
+  refreshInterval = setInterval(function() {
+    loadStats();
+    loadTimeline();
+    loadMetricsChart();
+  }, 30000);
+}
+
+document.addEventListener('visibilitychange', function() {
+  if (document.hidden) {
+    if (refreshInterval) { clearInterval(refreshInterval); refreshInterval = null; }
+  } else {
+    startPolling();
+  }
+});
+
+startPolling();
+
+})();
 </script>
 </body>
 </html>

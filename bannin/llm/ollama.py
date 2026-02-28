@@ -5,26 +5,31 @@ polls /api/ps for loaded models, VRAM allocation, and context length.
 Graceful degradation: if Ollama is not running, returns empty results.
 """
 
+from __future__ import annotations
+
 import json
 import threading
 import time
 import urllib.error
 import urllib.request
-from typing import Optional
+
+from bannin.log import logger
 
 
 class OllamaMonitor:
     """Singleton that polls Ollama for loaded model info on a background thread."""
 
-    _instance: Optional["OllamaMonitor"] = None
+    _instance: OllamaMonitor | None = None
     _lock = threading.Lock()
 
-    def __init__(self, host: str | None = None, poll_interval: int = 15):
-        self._host = host or self._resolve_host()
-        self._poll_interval = poll_interval
+    def __init__(self, host: str | None = None, poll_interval: int = 15) -> None:
+        self._host_override = host
+        self._host: str | None = host  # Lazy-resolved on first use if None
+        self._poll_interval = max(1, poll_interval)
         self._data_lock = threading.Lock()
         self._running = False
-        self._thread: Optional[threading.Thread] = None
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
 
         # Cached state
         self._is_available = False
@@ -40,7 +45,7 @@ class OllamaMonitor:
             return cls._instance
 
     @classmethod
-    def reset(cls):
+    def reset(cls) -> None:
         with cls._lock:
             if cls._instance is not None:
                 cls._instance.stop()
@@ -53,47 +58,105 @@ class OllamaMonitor:
         if env_host:
             if not env_host.startswith("http"):
                 env_host = f"http://{env_host}"
-            return env_host.rstrip("/")
-        try:
-            from bannin.config.loader import get_config
-            cfg = get_config()
-            host = cfg.get("ollama", {}).get("host")
-            if host:
-                return host.rstrip("/")
-        except Exception:
-            pass
-        return "http://localhost:11434"
+            host = env_host.rstrip("/")
+        else:
+            host = None
+            try:
+                from bannin.config.loader import get_config
+                cfg = get_config()
+                host = cfg.get("ollama", {}).get("host")
+                if host:
+                    host = host.rstrip("/")
+            except Exception:
+                logger.debug("Config unavailable for Ollama host, using default")
 
-    def start(self):
-        """Start background polling thread."""
-        if self._running:
-            return
-        self._running = True
+        if not host:
+            host = "http://localhost:11434"
+
+        # SSRF mitigation: warn if resolved host is not localhost
+        self._validate_host_locality(host)
+
+        return host
+
+    @staticmethod
+    def _validate_host_locality(host: str) -> None:
+        """Warn if the Ollama host resolves to a non-local address.
+
+        We do not block remote hosts since users may intentionally connect
+        to a remote Ollama instance, but we log a warning so the operator
+        is aware of the security implication.
+        """
+        from urllib.parse import urlparse
+        import socket
+
+        _LOCAL_ADDRS = {"127.0.0.1", "::1", "localhost"}
+
+        try:
+            parsed = urlparse(host)
+            hostname = parsed.hostname or ""
+            if hostname.lower() in _LOCAL_ADDRS:
+                return
+            # Resolve to check if it maps to a loopback address
+            try:
+                resolved = socket.getaddrinfo(hostname, parsed.port or 11434)
+                resolved_ips = {addr[4][0] for addr in resolved}
+                loopback = {"127.0.0.1", "::1"}
+                if resolved_ips & loopback:
+                    return
+            except socket.gaierror:
+                pass
+            logger.warning(
+                "Ollama host '%s' resolves to a non-local address. "
+                "Requests will be sent to a remote server. "
+                "If this is unintentional, set OLLAMA_HOST to localhost.",
+                host,
+            )
+        except Exception:
+            logger.debug("Failed to validate Ollama host locality")
+
+    def start(self) -> None:
+        """Start background polling thread.
+
+        Resolves the Ollama host here (outside the class-level singleton lock)
+        to avoid blocking other callers during DNS resolution.
+        """
+        # Lazy host resolution outside data lock (DNS can block for seconds)
+        if self._host is None:
+            self._host = self._resolve_host()
+        with self._data_lock:
+            if self._running:
+                return
+            self._running = True
         self._thread = threading.Thread(target=self._poll_loop, daemon=True)
         self._thread.start()
 
-    def stop(self):
+    def stop(self) -> None:
         """Stop background polling."""
-        self._running = False
+        with self._data_lock:
+            self._running = False
+        self._stop_event.set()
 
-    def _poll_loop(self):
+    def _poll_loop(self) -> None:
         """Background loop: check Ollama every N seconds."""
-        while self._running:
+        while not self._stop_event.is_set():
             try:
                 self._poll_once()
             except Exception:
+                logger.warning("Ollama poll loop error", exc_info=True)
                 with self._data_lock:
                     self._is_available = False
                     self._models = []
-            time.sleep(self._poll_interval)
+            self._stop_event.wait(timeout=self._poll_interval)
 
-    def _poll_once(self):
+    def _poll_once(self) -> None:
         """Single poll of Ollama /api/ps endpoint."""
+        if not self._host:
+            return
         url = f"{self._host}/api/ps"
         try:
             req = urllib.request.Request(url, method="GET")
             with urllib.request.urlopen(req, timeout=5) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
+                data = json.loads(resp.read(1024 * 1024).decode("utf-8"))
         except (urllib.error.URLError, OSError, json.JSONDecodeError, TimeoutError):
             with self._data_lock:
                 self._is_available = False
@@ -141,7 +204,7 @@ class OllamaMonitor:
         # Emit load/unload events
         self._emit_model_changes(old_names, current_names)
 
-    def _emit_model_changes(self, old_names: set[str], current_names: set[str]):
+    def _emit_model_changes(self, old_names: set[str], current_names: set[str]) -> None:
         """Emit analytics events for model loads and unloads."""
         try:
             from bannin.analytics.pipeline import EventPipeline
@@ -164,7 +227,7 @@ class OllamaMonitor:
                     "data": {"model": name},
                 })
         except Exception:
-            pass
+            logger.debug("Failed to emit Ollama model change events")
 
     # --- Public API ---
 

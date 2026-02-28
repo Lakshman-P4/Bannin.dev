@@ -31,4 +31,16 @@ desktop.ini
 
 # Environment / secrets
 .env
+.env.local
 *.key
+
+# Node.js (web/ and relay/)
+node_modules/
+.next/
+dist/
+coverage/
+*.log
+tsconfig.tsbuildinfo
+
+# Checkpoints (training test artifacts)
+checkpoints/

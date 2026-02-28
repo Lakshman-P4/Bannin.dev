@@ -11,11 +11,17 @@ Tools:
     get_active_alerts     - Currently firing threshold alerts
 """
 
+from __future__ import annotations
+
 import json
+import math
 import os
 import sys
+import threading
 
 from mcp.server.fastmcp import FastMCP
+
+from bannin.log import logger
 
 mcp = FastMCP("bannin")
 
@@ -71,17 +77,17 @@ def _detect_parent_client() -> str:
             except (psutil.AccessDenied, psutil.NoSuchProcess):
                 pass
     except Exception:
-        pass
+        logger.debug("Could not detect parent MCP client", exc_info=True)
     return "Unknown MCP Client"
 
 
-def _record_tool_call(tool_name: str, response_bytes: int = 0):
+def _record_tool_call(tool_name: str, response_bytes: int = 0) -> None:
     """Record a tool call locally. Background pusher handles agent sync."""
     try:
         from bannin.mcp.session import MCPSessionTracker
         MCPSessionTracker.get().record_tool_call(tool_name, response_bytes=response_bytes)
     except Exception:
-        pass
+        logger.debug("Failed to record MCP tool call: %s", tool_name)
 
 
 def _record_and_return(tool_name: str, result: str) -> str:
@@ -123,6 +129,7 @@ def get_running_processes(limit: int = 10) -> str:
     """
     from bannin.core.process import get_process_count, get_grouped_processes
 
+    limit = max(1, min(limit, 500))
     result = {
         "summary": get_process_count(),
         "top_processes": get_grouped_processes(limit=limit),
@@ -144,7 +151,7 @@ def predict_oom() -> str:
     """
     from bannin.intelligence.oom import OOMPredictor
 
-    predictor = OOMPredictor()
+    predictor = OOMPredictor.get()
     return _record_and_return("predict_oom", json.dumps(predictor.predict(), default=str))
 
 
@@ -207,7 +214,7 @@ def check_context_health() -> str:
     try:
         session_fatigue = MCPSessionTracker.get().get_session_health()
     except Exception:
-        pass
+        logger.debug("Failed to get MCP session health for context check")
 
     try:
         from bannin.llm.ollama import OllamaMonitor
@@ -215,7 +222,7 @@ def check_context_health() -> str:
         if ollama.get("available"):
             vram_pressure = ollama.get("vram_pressure")
     except Exception:
-        pass
+        logger.debug("Failed to get Ollama health for context check")
 
     tracker = LLMTracker.get()
     health = tracker.get_health(
@@ -260,6 +267,11 @@ def query_history(event_type: str = "", severity: str = "", since: str = "1h", l
     from bannin.analytics.store import AnalyticsStore
     import time as _time
 
+    event_type = event_type[:128]
+    severity = severity[:32]
+    since = since[:32]
+    limit = max(1, min(limit, 500))
+
     since_ts = None
     if since:
         s = since.strip().lower()
@@ -267,10 +279,15 @@ def query_history(event_type: str = "", severity: str = "", since: str = "1h", l
         for suffix, mult in multipliers.items():
             if s.endswith(suffix):
                 try:
-                    since_ts = _time.time() - (float(s[:-1]) * mult)
+                    val = float(s[:-1])
+                    if val >= 0 and math.isfinite(val):
+                        since_ts = _time.time() - (val * mult)
                 except ValueError:
                     pass
                 break
+    # If since was provided but could not be parsed, default to 1 hour
+    if since and since_ts is None:
+        since_ts = _time.time() - 3600
 
     events = AnalyticsStore.get().query(
         event_type=event_type or None,
@@ -295,42 +312,74 @@ def search_events(query: str, limit: int = 30) -> str:
     """
     from bannin.analytics.store import AnalyticsStore
 
+    query = query[:500]
+    limit = max(1, min(limit, 500))
     results = AnalyticsStore.get().search(query, limit=limit)
     return _record_and_return("search_events", json.dumps({"results": results, "count": len(results)}, default=str))
 
 
-def _start_session_pusher():
+_pusher_running = False
+_pusher_stop_event: threading.Event | None = None
+_pusher_lock = threading.Lock()
+
+
+def _start_session_pusher() -> None:
     """Background thread that pushes MCP session data to the agent periodically."""
-    import threading
+    global _pusher_running, _pusher_stop_event
     import time
     import urllib.request
 
-    def _push_loop():
-        # Wait briefly for the agent to be ready
-        time.sleep(2)
-        from bannin.mcp.session import MCPSessionTracker
-        tracker = MCPSessionTracker.get()
+    with _pusher_lock:
+        if _pusher_running:
+            return
+        _pusher_running = True
+        _pusher_stop_event = threading.Event()
 
-        while True:
-            try:
-                payload = tracker.get_push_payload()
-                data = json.dumps(payload).encode("utf-8")
-                req = urllib.request.Request(
-                    "http://localhost:8420/mcp/session",
-                    data=data,
-                    headers={"Content-Type": "application/json"},
-                    method="POST",
-                )
-                urllib.request.urlopen(req, timeout=2)
-            except Exception:
-                pass
-            time.sleep(10)
+    stop_event = _pusher_stop_event
+
+    def _push_loop() -> None:
+        global _pusher_running
+        try:
+            # Wait briefly for the agent to be ready
+            stop_event.wait(timeout=2)
+            if stop_event.is_set():
+                return
+            from bannin.mcp.session import MCPSessionTracker
+            tracker = MCPSessionTracker.get()
+
+            while not stop_event.is_set():
+                try:
+                    payload = tracker.get_push_payload()
+                    data = json.dumps(payload).encode("utf-8")
+                    req = urllib.request.Request(
+                        "http://localhost:8420/mcp/session",
+                        data=data,
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    with urllib.request.urlopen(req, timeout=2) as resp:
+                        resp.read()
+                except Exception:
+                    logger.debug("MCP session push to agent failed (agent may not be running)")
+                stop_event.wait(timeout=10)
+        finally:
+            with _pusher_lock:
+                _pusher_running = False
 
     t = threading.Thread(target=_push_loop, daemon=True)
     t.start()
 
 
-def serve():
+def _stop_session_pusher() -> None:
+    """Stop the background session pusher thread."""
+    global _pusher_stop_event, _pusher_running
+    with _pusher_lock:
+        if _pusher_stop_event is not None:
+            _pusher_stop_event.set()
+        _pusher_running = False
+
+
+def serve() -> None:
     """Start the Bannin MCP server with stdio transport."""
     # Detect parent client before anything else
     from bannin.mcp.session import MCPSessionTracker

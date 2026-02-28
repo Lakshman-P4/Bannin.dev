@@ -8,13 +8,17 @@ Each detected progress source becomes a tracked "task" with current/total/percen
 ETA calculation is added in Phase 2e.
 """
 
-import io
+from __future__ import annotations
+
 import re
 import sys
 import threading
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import Any
+
+from bannin.log import logger
 
 
 class ProgressTracker:
@@ -23,8 +27,11 @@ class ProgressTracker:
     _instance = None
     _lock = threading.Lock()
 
-    def __init__(self):
-        self._tasks = {}  # task_id -> task dict
+    _MAX_TASKS = 500
+
+    def __init__(self) -> None:
+        self._tasks: dict[str, dict] = {}
+        self._external_ids: dict[str, str] = {}  # name -> task_id for external tasks
         self._data_lock = threading.RLock()  # Reentrant: _scan_stdout -> _register_task both need lock
         self._tqdm_patched = False
         self._stdout_patched = False
@@ -32,6 +39,7 @@ class ProgressTracker:
         self._original_tqdm_update = None
         self._original_tqdm_close = None
         self._original_stdout_write = None
+        self._compiled_patterns: list[dict] = []
         self._stdout_patterns = self._load_patterns()
         self._stall_timeout = self._load_stall_timeout()
 
@@ -43,7 +51,7 @@ class ProgressTracker:
             return cls._instance
 
     @classmethod
-    def reset(cls):
+    def reset(cls) -> None:
         with cls._lock:
             if cls._instance is not None:
                 cls._instance.unhook_all()
@@ -74,126 +82,143 @@ class ProgressTracker:
     # tqdm interception
     # ------------------------------------------------------------------
 
-    def hook_tqdm(self):
-        """Monkey-patch tqdm to report progress to this tracker."""
-        if self._tqdm_patched:
-            return
+    def hook_tqdm(self) -> None:
+        """Monkey-patch tqdm to report progress to this tracker.
+
+        The entire import-save-patch sequence runs under _data_lock so that
+        unhook_tqdm cannot restore originals between the flag flip and the
+        actual monkey-patch, which would leave None originals.
+        """
         try:
             import tqdm as tqdm_module
             tqdm_cls = tqdm_module.tqdm
         except ImportError:
             return  # tqdm not installed, nothing to hook
 
-        tracker = self
+        with self._data_lock:
+            if self._tqdm_patched:
+                return
 
-        # Save originals
-        self._original_tqdm_init = tqdm_cls.__init__
-        self._original_tqdm_update = tqdm_cls.update
-        self._original_tqdm_close = tqdm_cls.close
+            tracker = self
 
-        original_init = self._original_tqdm_init
-        original_update = self._original_tqdm_update
-        original_close = self._original_tqdm_close
+            # Save originals under lock
+            self._original_tqdm_init = tqdm_cls.__init__
+            self._original_tqdm_update = tqdm_cls.update
+            self._original_tqdm_close = tqdm_cls.close
 
-        def patched_init(self_tqdm, *args, **kwargs):
-            original_init(self_tqdm, *args, **kwargs)
-            # Register this progress bar as a tracked task
-            task_id = str(uuid.uuid4())[:8]
-            desc = getattr(self_tqdm, "desc", None) or "tqdm progress"
-            total = getattr(self_tqdm, "total", None)
-            self_tqdm._bannin_task_id = task_id
-            tracker._register_task(
-                task_id=task_id,
-                name=str(desc),
-                source="tqdm",
-                total=total,
-            )
+            original_init = self._original_tqdm_init
+            original_update = self._original_tqdm_update
+            original_close = self._original_tqdm_close
 
-        def patched_update(self_tqdm, n=1):
-            original_update(self_tqdm, n)
-            task_id = getattr(self_tqdm, "_bannin_task_id", None)
-            if task_id:
-                current = getattr(self_tqdm, "n", 0)
+            def patched_init(self_tqdm: Any, *args: Any, **kwargs: Any) -> None:
+                original_init(self_tqdm, *args, **kwargs)
+                # Register this progress bar as a tracked task
+                task_id = str(uuid.uuid4())[:8]
+                desc = getattr(self_tqdm, "desc", None) or "tqdm progress"
                 total = getattr(self_tqdm, "total", None)
-                tracker._update_task(task_id, current=current, total=total)
+                self_tqdm._bannin_task_id = task_id
+                tracker._register_task(
+                    task_id=task_id,
+                    name=str(desc),
+                    source="tqdm",
+                    total=total,
+                )
 
-        def patched_close(self_tqdm):
-            task_id = getattr(self_tqdm, "_bannin_task_id", None)
-            if task_id:
-                total = getattr(self_tqdm, "total", None)
-                tracker._complete_task(task_id, final_current=total)
-            original_close(self_tqdm)
+            def patched_update(self_tqdm: Any, n: int = 1) -> None:
+                original_update(self_tqdm, n)
+                task_id = getattr(self_tqdm, "_bannin_task_id", None)
+                if task_id:
+                    current = getattr(self_tqdm, "n", 0)
+                    total = getattr(self_tqdm, "total", None)
+                    tracker._update_task(task_id, current=current, total=total)
 
-        tqdm_cls.__init__ = patched_init
-        tqdm_cls.update = patched_update
-        tqdm_cls.close = patched_close
-        self._tqdm_patched = True
+            def patched_close(self_tqdm: Any) -> None:
+                task_id = getattr(self_tqdm, "_bannin_task_id", None)
+                if task_id:
+                    total = getattr(self_tqdm, "total", None)
+                    tracker._complete_task(task_id, final_current=total)
+                original_close(self_tqdm)
 
-    def unhook_tqdm(self):
-        """Restore original tqdm methods."""
-        if not self._tqdm_patched:
-            return
-        try:
-            import tqdm as tqdm_module
-            tqdm_cls = tqdm_module.tqdm
-            if self._original_tqdm_init:
-                tqdm_cls.__init__ = self._original_tqdm_init
-            if self._original_tqdm_update:
-                tqdm_cls.update = self._original_tqdm_update
-            if self._original_tqdm_close:
-                tqdm_cls.close = self._original_tqdm_close
-        except ImportError:
-            pass
-        self._tqdm_patched = False
+            tqdm_cls.__init__ = patched_init
+            tqdm_cls.update = patched_update
+            tqdm_cls.close = patched_close
+            self._tqdm_patched = True
+
+    def unhook_tqdm(self) -> None:
+        """Restore original tqdm methods. Entire restore runs under lock."""
+        with self._data_lock:
+            if not self._tqdm_patched:
+                return
+            try:
+                import tqdm as tqdm_module
+                tqdm_cls = tqdm_module.tqdm
+                if self._original_tqdm_init:
+                    tqdm_cls.__init__ = self._original_tqdm_init
+                if self._original_tqdm_update:
+                    tqdm_cls.update = self._original_tqdm_update
+                if self._original_tqdm_close:
+                    tqdm_cls.close = self._original_tqdm_close
+            except ImportError:
+                pass
+            self._tqdm_patched = False
 
     # ------------------------------------------------------------------
     # stdout pattern detection
     # ------------------------------------------------------------------
 
-    def hook_stdout(self):
-        """Wrap sys.stdout.write to scan for progress patterns."""
-        if self._stdout_patched:
-            return
+    def hook_stdout(self) -> None:
+        """Wrap sys.stdout.write to scan for progress patterns.
 
-        tracker = self
-        original_write = sys.stdout.write
-        self._original_stdout_write = original_write
+        The entire save-compile-patch sequence runs under _data_lock so that
+        unhook_stdout cannot restore the original between flag flip and patch.
+        """
+        with self._data_lock:
+            if self._stdout_patched:
+                return
 
-        # Compile patterns once
-        compiled = []
-        for p in self._stdout_patterns:
-            try:
-                compiled.append({
-                    "name": p["name"],
-                    "regex": re.compile(p["regex"]),
-                    "current_group": p["current_group"],
-                    "total_group": p.get("total_group"),
-                })
-            except re.error:
-                pass
-        self._compiled_patterns = compiled
+            tracker = self
+            original_write = sys.stdout.write
+            self._original_stdout_write = original_write
 
-        def patched_write(text):
-            result = original_write(text)
-            # Only scan non-empty text strings
-            if isinstance(text, str) and text.strip():
-                tracker._scan_stdout(text)
-            return result
+            # Compile patterns once
+            compiled = []
+            for p in self._stdout_patterns:
+                try:
+                    compiled.append({
+                        "name": p["name"],
+                        "regex": re.compile(p["regex"]),
+                        "current_group": p["current_group"],
+                        "total_group": p.get("total_group"),
+                    })
+                except re.error:
+                    pass
+            self._compiled_patterns = compiled
 
-        sys.stdout.write = patched_write
-        self._stdout_patched = True
+            def patched_write(text: str) -> int:
+                result = original_write(text)
+                # Only scan non-empty text strings
+                if isinstance(text, str) and text.strip():
+                    tracker._scan_stdout(text)
+                return result
 
-    def unhook_stdout(self):
-        """Restore original sys.stdout.write."""
-        if not self._stdout_patched:
-            return
-        if self._original_stdout_write:
-            sys.stdout.write = self._original_stdout_write
-        self._stdout_patched = False
+            sys.stdout.write = patched_write
+            self._stdout_patched = True
 
-    def _scan_stdout(self, text: str):
+    def unhook_stdout(self) -> None:
+        """Restore original sys.stdout.write. Entire restore runs under lock."""
+        with self._data_lock:
+            if not self._stdout_patched:
+                return
+            if self._original_stdout_write:
+                sys.stdout.write = self._original_stdout_write
+            self._stdout_patched = False
+
+    def _scan_stdout(self, text: str) -> None:
         """Check text against configured patterns and update tasks."""
-        for p in getattr(self, "_compiled_patterns", []):
+        # Bound input length to prevent regex DoS on pathological strings
+        if len(text) > 4096:
+            text = text[:4096]
+        for p in self._compiled_patterns:
             match = p["regex"].search(text)
             if match:
                 try:
@@ -221,12 +246,12 @@ class ProgressTracker:
     # Hook all / unhook all
     # ------------------------------------------------------------------
 
-    def hook_all(self):
+    def hook_all(self) -> None:
         """Hook both tqdm and stdout."""
         self.hook_tqdm()
         self.hook_stdout()
 
-    def unhook_all(self):
+    def unhook_all(self) -> None:
         """Unhook both tqdm and stdout."""
         self.unhook_tqdm()
         self.unhook_stdout()
@@ -235,8 +260,29 @@ class ProgressTracker:
     # Task management
     # ------------------------------------------------------------------
 
-    def _register_task(self, task_id: str, name: str, source: str, total: int | None):
+    def _evict_old_tasks(self) -> None:
+        """Remove oldest completed/stalled tasks when capacity exceeded. Must hold _data_lock."""
+        if len(self._tasks) < self._MAX_TASKS:
+            return
+        # Evict completed first, then stalled, by oldest start time
+        evictable = [
+            (tid, t) for tid, t in self._tasks.items()
+            if t["status"] in ("completed", "stalled")
+        ]
+        evictable.sort(key=lambda x: x[1]["_start_epoch"])
+        to_remove = max(1, len(self._tasks) - self._MAX_TASKS + 50)
+        for tid, _ in evictable[:to_remove]:
+            del self._tasks[tid]
+            # Clean up external name index
+            stale_names = [n for n, eid in self._external_ids.items() if eid == tid]
+            for n in stale_names:
+                del self._external_ids[n]
+
+    def _register_task(
+        self, task_id: str, name: str, source: str, total: int | None, pid: int | None = None,
+    ) -> None:
         with self._data_lock:
+            self._evict_old_tasks()
             self._tasks[task_id] = {
                 "task_id": task_id,
                 "name": name,
@@ -252,9 +298,10 @@ class ProgressTracker:
                 "_start_epoch": time.time(),
                 "_last_update_epoch": time.time(),
                 "status": "running",
+                "pid": pid,
             }
 
-    def _calculate_eta(self, task: dict):
+    def _calculate_eta(self, task: dict) -> None:
         """Calculate estimated time remaining for a task. Must hold _data_lock."""
         current = task["current"]
         total = task["total"]
@@ -280,7 +327,7 @@ class ProgressTracker:
         task["eta_human"] = _format_duration(eta_seconds)
         task["eta_timestamp"] = _format_wall_clock(eta_seconds)
 
-    def _update_task(self, task_id: str, current: int, total: int | None = None):
+    def _update_task(self, task_id: str, current: int, total: int | None = None) -> None:
         with self._data_lock:
             task = self._tasks.get(task_id)
             if not task:
@@ -307,7 +354,7 @@ class ProgressTracker:
                 task["eta_human"] = "done"
                 task["eta_timestamp"] = None
 
-    def _complete_task(self, task_id: str, final_current: int | None = None):
+    def _complete_task(self, task_id: str, final_current: int | None = None) -> None:
         with self._data_lock:
             task = self._tasks.get(task_id)
             if not task:
@@ -318,7 +365,7 @@ class ProgressTracker:
             task["percent"] = 100.0
             task["elapsed_seconds"] = round(time.time() - task["_start_epoch"], 1)
 
-    def check_stalls(self):
+    def check_stalls(self) -> None:
         """Mark tasks as stalled if no update within the timeout."""
         now = time.time()
         with self._data_lock:
@@ -328,7 +375,7 @@ class ProgressTracker:
                         task["status"] = "stalled"
 
     def get_tasks(self) -> dict:
-        """Get all tracked tasks grouped by status."""
+        """Get all tracked tasks grouped by status, plus detected training processes."""
         self.check_stalls()
         with self._data_lock:
             all_tasks = list(self._tasks.values())
@@ -342,11 +389,20 @@ class ProgressTracker:
         completed = [t for t in clean if t["status"] == "completed"]
         stalled = [t for t in clean if t["status"] == "stalled"]
 
+        # Include detected training processes from background scanner
+        detected_tasks: list[dict] = []
+        try:
+            from bannin.intelligence.training import TrainingDetector
+            detected_tasks = TrainingDetector.get().get_detected_tasks()
+        except Exception:
+            pass
+
         return {
             "active_tasks": active,
             "completed_tasks": completed,
             "stalled_tasks": stalled,
-            "total_tracked": len(clean),
+            "detected_tasks": detected_tasks,
+            "total_tracked": len(clean) + len(detected_tasks),
         }
 
     def get_task(self, task_id: str) -> dict | None:
@@ -356,6 +412,45 @@ class ProgressTracker:
             task = self._tasks.get(task_id)
             if not task:
                 return None
+            return {k: v for k, v in task.items() if not k.startswith("_")}
+
+    def get_task_pid(self, task_id: str) -> int | None:
+        """Get the PID associated with a task, if any."""
+        with self._data_lock:
+            task = self._tasks.get(task_id)
+            return task.get("pid") if task else None
+
+    def upsert_external(
+        self, name: str, current: int, total: int | None = None, pid: int | None = None,
+    ) -> dict:
+        """Register or update an externally-reported task. Returns task state dict.
+
+        Used by POST /tasks to accept progress from external scripts via
+        bannin.progress(). Upserts by name: if a running task with the same
+        name exists, updates it; otherwise creates a new task.
+
+        The entire check-create-update sequence runs under _data_lock to prevent
+        race conditions where the task could be evicted between creation and update.
+        """
+        with self._data_lock:
+            task_id = self._external_ids.get(name)
+            if task_id and task_id in self._tasks and self._tasks[task_id]["status"] == "running":
+                # Update PID if provided (process may have restarted)
+                if pid is not None:
+                    self._tasks[task_id]["pid"] = pid
+            else:
+                # Create new task
+                task_id = f"ext_{uuid.uuid4().hex[:8]}"
+                self._external_ids[name] = task_id
+                self._register_task(task_id, name, "external", total, pid=pid)
+
+            # Update within the same lock scope to prevent eviction between create and update
+            self._update_task(task_id, current=current, total=total)
+
+            # Return snapshot within lock scope
+            task = self._tasks.get(task_id)
+            if not task:
+                return {}
             return {k: v for k, v in task.items() if not k.startswith("_")}
 
 

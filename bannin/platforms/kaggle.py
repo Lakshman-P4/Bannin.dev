@@ -1,16 +1,20 @@
+from __future__ import annotations
+
 import os
+import threading
 import time
 import shutil
 import socket
 
 import psutil
 
+from bannin.log import logger
 from bannin.config.loader import get_kaggle_config
 
 _session_start_time = time.time()
 
 
-def _load_kaggle_limits():
+def _load_kaggle_limits() -> dict:
     """Load Kaggle limits from remote config, falling back to defaults."""
     cfg = get_kaggle_config()
 
@@ -68,16 +72,26 @@ MAX_CONCURRENT_GPU_SESSIONS = 1
 
 def get_kaggle_metrics() -> dict:
     accel_type = _detect_accelerator_type()
+    accel_info = _get_accelerator_info(accel_type)
+    storage = _get_storage_info()
+    internet = _check_internet_access()
+    quota = _get_quota_info(accel_type)
     return {
         "platform": "kaggle",
         "session": _get_session_info(accel_type),
-        "accelerator": _get_accelerator_info(accel_type),
+        "accelerator": accel_info,
         "ram": _get_ram_info(accel_type),
-        "storage": _get_storage_info(),
-        "internet": _check_internet_access(),
-        "quota": _get_quota_info(accel_type),
+        "storage": storage,
+        "internet": internet,
+        "quota": quota,
         "limits": _get_hard_limits(accel_type),
-        "warnings": _generate_warnings(accel_type),
+        "warnings": _generate_warnings(
+            accel_type=accel_type,
+            accel_info=accel_info,
+            storage=storage,
+            internet=internet,
+            quota=quota,
+        ),
     }
 
 
@@ -89,7 +103,7 @@ def _detect_accelerator_type() -> str:
         if pynvml.nvmlDeviceGetCount() > 0:
             return "gpu"
     except Exception:
-        pass
+        logger.debug("Kaggle GPU detection: pynvml unavailable")
 
     # Check for TPU
     if os.environ.get("TPU_NAME") or os.environ.get("TPU_WORKER_HOSTNAMES"):
@@ -111,7 +125,7 @@ def _get_session_info(accel_type: str) -> dict:
         "max_session_human": _format_duration(max_session),
         "remaining_seconds": round(remaining),
         "remaining_human": _format_duration(remaining),
-        "percent_used": round((elapsed / max_session) * 100, 1),
+        "percent_used": round((elapsed / max_session) * 100, 1) if max_session > 0 else 0,
         "idle_timeout_seconds": IDLE_TIMEOUT,
         "idle_timeout_human": _format_duration(IDLE_TIMEOUT),
         "idle_note": "Kaggle shows 'Are you still there?' prompts. 60 min inactivity = disconnect.",
@@ -144,7 +158,10 @@ def _get_accelerator_info(accel_type: str) -> dict:
             handle = pynvml.nvmlDeviceGetHandleByIndex(0)
             name = pynvml.nvmlDeviceGetName(handle)
             if isinstance(name, bytes):
-                name = name.decode("utf-8")
+                try:
+                    name = name.decode("utf-8")
+                except UnicodeDecodeError:
+                    name = name.decode("utf-8", errors="replace")
             result["name"] = name
 
             # Aggregate memory across all GPUs
@@ -167,12 +184,12 @@ def _get_accelerator_info(accel_type: str) -> dict:
             try:
                 result["temperature_c"] = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
             except Exception:
-                pass
+                logger.debug("Kaggle GPU temperature read failed")
 
             try:
                 result["power_watts"] = round(pynvml.nvmlDeviceGetPowerUsage(handle) / 1000, 1)
             except Exception:
-                pass
+                logger.debug("Kaggle GPU power read failed")
 
             # Match known specs
             for key, specs in GPU_SPECS.items():
@@ -185,7 +202,7 @@ def _get_accelerator_info(accel_type: str) -> dict:
                 result["name"] = f"{name} x2 (dual GPU)"
 
         except Exception:
-            pass
+            logger.debug("Kaggle GPU accelerator info collection failed")
 
     elif accel_type == "tpu":
         tpu_name = os.environ.get("TPU_NAME", "TPU")
@@ -252,11 +269,12 @@ def _get_storage_info() -> dict:
         usage = shutil.disk_usage("/")
         result["disk"]["used_gb"] = round(usage.used / (1024**3), 2)
         result["disk"]["free_gb"] = round(usage.free / (1024**3), 2)
-        result["disk"]["percent"] = round(usage.used / usage.total * 100, 1)
+        result["disk"]["percent"] = round(usage.used / usage.total * 100, 1) if usage.total > 0 else 0
     except Exception:
-        pass
+        logger.debug("Kaggle disk usage check failed")
 
-    # Output directory size and file count
+    # Output directory size and file count (bounded walk to prevent runaway on huge trees)
+    _MAX_WALK_FILES = 50000
     try:
         total_size = 0
         file_count = 0
@@ -267,42 +285,70 @@ def _get_storage_info() -> dict:
                     total_size += os.path.getsize(os.path.join(dirpath, f))
                 except OSError:
                     pass
+                if file_count >= _MAX_WALK_FILES:
+                    break
+            if file_count >= _MAX_WALK_FILES:
+                break
         result["output"]["used_gb"] = round(total_size / (1024**3), 2)
         result["output"]["file_count"] = file_count
     except Exception:
-        pass
+        logger.debug("Kaggle output directory scan failed")
 
-    # Input directory size
+    # Input directory size (bounded walk)
     try:
         total_input = 0
+        input_file_count = 0
         for dirpath, dirnames, filenames in os.walk(input_dir):
             for f in filenames:
+                input_file_count += 1
                 try:
                     total_input += os.path.getsize(os.path.join(dirpath, f))
                 except OSError:
                     pass
+                if input_file_count >= _MAX_WALK_FILES:
+                    break
+            if input_file_count >= _MAX_WALK_FILES:
+                break
         result["input"]["used_gb"] = round(total_input / (1024**3), 2)
     except Exception:
-        pass
+        logger.debug("Kaggle input directory scan failed")
 
     return result
 
 
+_internet_cache_result: dict | None = None
+_internet_cache_time: float = 0.0
+_internet_cache_lock = threading.Lock()
+_INTERNET_CACHE_TTL = 60.0  # Re-check every 60 seconds
+
+
 def _check_internet_access() -> dict:
+    global _internet_cache_result, _internet_cache_time
+
+    now = time.time()
+    with _internet_cache_lock:
+        if _internet_cache_result is not None and (now - _internet_cache_time) < _INTERNET_CACHE_TTL:
+            return _internet_cache_result
+
     has_internet = False
     try:
-        socket.create_connection(("8.8.8.8", 53), timeout=3)
+        conn = socket.create_connection(("8.8.8.8", 53), timeout=3)
+        conn.close()
         has_internet = True
     except (socket.timeout, OSError):
         pass
 
-    return {
+    result = {
         "available": has_internet,
         "note": (
             None if has_internet
             else "Internet is disabled (likely a competition notebook). Cannot pip install or download data. Pre-load packages and models as Kaggle datasets."
         ),
     }
+    with _internet_cache_lock:
+        _internet_cache_result = result
+        _internet_cache_time = now
+    return result
 
 
 def _get_quota_info(accel_type: str) -> dict:
@@ -342,31 +388,34 @@ def _get_hard_limits(accel_type: str) -> dict:
     }
 
 
-def _generate_warnings(accel_type: str) -> list[str]:
+def _generate_warnings(
+    *,
+    accel_type: str,
+    accel_info: dict,
+    storage: dict,
+    internet: dict,
+    quota: dict,
+) -> list[str]:
     warnings = []
 
     # Platform-specific binary checks (not threshold-based)
     if accel_type == "cpu":
         warnings.append("NO ACCELERATOR: Running on CPU only. Enable GPU/TPU in notebook settings if needed.")
 
-    accel = _get_accelerator_info(accel_type)
-    if accel["temperature_c"] is not None and accel["temperature_c"] > 85:
-        warnings.append(f"GPU HOT: Temperature at {accel['temperature_c']}C. May cause thermal throttling.")
+    if accel_info["temperature_c"] is not None and accel_info["temperature_c"] > 85:
+        warnings.append(f"GPU HOT: Temperature at {accel_info['temperature_c']}C. May cause thermal throttling.")
 
     # Kaggle-specific: output file count (not a simple percent threshold)
-    storage = _get_storage_info()
     output = storage["output"]
     if output["file_count"] is not None and output["file_count"] > 400:
         warnings.append(f"OUTPUT FILES HIGH: {output['file_count']} of {OUTPUT_FILE_LIMIT} file limit. Consider zipping files.")
 
     # Internet check
-    internet = _check_internet_access()
     if not internet["available"]:
         warnings.append("NO INTERNET: External downloads and pip installs will fail. Use pre-loaded datasets.")
 
     # GPU quota reminder (informational, not a threshold alert)
     if accel_type == "gpu":
-        quota = _get_quota_info(accel_type)
         if quota["gpu"]["this_session_hours"] > 2:
             remaining_quota_estimate = WEEKLY_GPU_QUOTA_HOURS - quota["gpu"]["this_session_hours"]
             warnings.append(f"GPU QUOTA: Used {quota['gpu']['this_session_hours']}h this session. ~{round(remaining_quota_estimate, 1)}h may remain this week (check kaggle.com/me/account).")
@@ -375,15 +424,17 @@ def _generate_warnings(accel_type: str) -> list[str]:
     try:
         from bannin.intelligence.alerts import ThresholdEngine
         active = ThresholdEngine.get().get_active_alerts()
-        for alert in active.get("active", []):
+        for alert in active.get("active", [])[:50]:
             warnings.append(alert["message"])
     except Exception:
-        pass
+        logger.debug("Failed to fetch active alerts for Kaggle warnings")
 
-    return warnings
+    return warnings[:100]
 
 
 def _format_duration(seconds: float) -> str:
+    if seconds < 0:
+        seconds = 0
     hours = int(seconds // 3600)
     minutes = int((seconds % 3600) // 60)
     if hours > 0:

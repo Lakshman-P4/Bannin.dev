@@ -5,6 +5,8 @@ downstream systems (OOM predictor, alerts, graphs) can look at trends
 over the last N minutes instead of just a single snapshot.
 """
 
+from __future__ import annotations
+
 import collections
 import threading
 import time
@@ -12,6 +14,7 @@ from datetime import datetime, timezone
 
 from bannin.core.collector import get_memory_metrics, get_disk_metrics, get_cpu_metrics
 from bannin.core.gpu import get_gpu_metrics
+from bannin.log import logger
 
 
 class MetricHistory:
@@ -20,13 +23,14 @@ class MetricHistory:
     _instance = None
     _lock = threading.Lock()
 
-    def __init__(self, max_readings: int = 900, interval_seconds: int = 2):
+    def __init__(self, max_readings: int = 900, interval_seconds: int = 2) -> None:
         self._max_readings = max_readings
         self._interval = interval_seconds
         self._readings = collections.deque(maxlen=max_readings)
         self._data_lock = threading.Lock()
         self._thread = None
         self._running = False
+        self._stop_event = threading.Event()
         self._cycle_count = 0
         self._cached_disk: dict | None = None
         self._cached_gpu: list | None = None
@@ -48,33 +52,48 @@ class MetricHistory:
             max_readings = cfg.get("history_max_readings", 900)
             interval = cfg.get("collection_interval_seconds", 2)
         except Exception:
+            logger.debug("Config unavailable for MetricHistory, using defaults")
             max_readings = 900
             interval = 2
         return cls(max_readings=max_readings, interval_seconds=interval)
 
     @classmethod
-    def reset(cls):
+    def reset(cls) -> None:
         """Stop collection and reset the singleton. Mainly for testing."""
         with cls._lock:
             if cls._instance is not None:
                 cls._instance.stop()
             cls._instance = None
 
-    def start(self):
+    def start(self) -> None:
         """Start the background collection thread."""
-        if self._running:
-            return
-        self._running = True
+        with self._data_lock:
+            if self._running:
+                return
+            self._running = True
         self._thread = threading.Thread(target=self._collection_loop, daemon=True)
         self._thread.start()
 
-    def stop(self):
+    def stop(self) -> None:
         """Stop the background collection thread."""
-        self._running = False
+        with self._data_lock:
+            self._running = False
+        self._stop_event.set()
 
-    def _collection_loop(self):
-        """Background loop that collects a snapshot every N seconds."""
-        while self._running:
+    def _is_running(self) -> bool:
+        """Check running flag under lock."""
+        with self._data_lock:
+            return self._running
+
+    def _collection_loop(self) -> None:
+        """Background loop that collects a snapshot every N seconds.
+
+        Subtracts elapsed collection time from the sleep interval to prevent
+        drift (interval = target, not target + collection_time).
+        """
+        while not self._stop_event.is_set():
+            cycle_start = time.monotonic()
+            snapshot = None
             try:
                 snapshot = self._take_snapshot()
                 with self._data_lock:
@@ -96,13 +115,17 @@ class MetricHistory:
                         },
                     })
                 except Exception:
-                    pass
+                    logger.debug("Failed to emit metric snapshot to pipeline")
             except Exception:
-                pass
+                logger.warning("MetricHistory collection loop error", exc_info=True)
 
             # Run alert evaluation every other cycle, passing the snapshot
             # we already collected (avoids duplicate psutil calls)
-            if self._cycle_count % 2 == 0:
+            with self._data_lock:
+                run_alerts = snapshot is not None and self._cycle_count % 2 == 0
+                self._cycle_count += 1
+
+            if run_alerts:
                 try:
                     from bannin.intelligence.alerts import ThresholdEngine
                     ThresholdEngine.get().evaluate(metrics_snapshot={
@@ -117,10 +140,10 @@ class MetricHistory:
                         "gpu": snapshot.get("gpu", []),
                     })
                 except Exception:
-                    pass
+                    logger.debug("Alert evaluation failed in collection loop", exc_info=True)
 
-            self._cycle_count += 1
-            time.sleep(self._interval)
+            elapsed = time.monotonic() - cycle_start
+            self._stop_event.wait(timeout=max(0, self._interval - elapsed))
 
     def _take_snapshot(self) -> dict:
         """Collect a single timestamped snapshot of key metrics.
@@ -132,12 +155,21 @@ class MetricHistory:
         mem = get_memory_metrics()
         cpu = get_cpu_metrics()
 
+        # Read cycle count and cache under lock to avoid races
+        with self._data_lock:
+            cycle = self._cycle_count
+            cached_disk = self._cached_disk
+            cached_gpu = self._cached_gpu
+
         # Disk and GPU: refresh every 8 cycles, use cache otherwise
-        if self._cycle_count % 8 == 0 or self._cached_disk is None:
-            self._cached_disk = get_disk_metrics()
-            self._cached_gpu = get_gpu_metrics()
-        disk = self._cached_disk
-        gpus = self._cached_gpu
+        if cycle % 8 == 0 or cached_disk is None:
+            cached_disk = get_disk_metrics()
+            cached_gpu = get_gpu_metrics()
+            with self._data_lock:
+                self._cached_disk = cached_disk
+                self._cached_gpu = cached_gpu
+        disk = cached_disk
+        gpus = cached_gpu
 
         snapshot = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -203,9 +235,12 @@ class MetricHistory:
         return [r for r in readings if r["epoch"] >= cutoff]
 
     def get_latest(self) -> dict | None:
-        """Get the most recent snapshot, or None if no data yet."""
+        """Get the most recent snapshot, or None if no data yet.
+
+        Returns a shallow copy to prevent callers from mutating internal state.
+        """
         with self._data_lock:
-            return self._readings[-1] if self._readings else None
+            return dict(self._readings[-1]) if self._readings else None
 
     @property
     def reading_count(self) -> int:

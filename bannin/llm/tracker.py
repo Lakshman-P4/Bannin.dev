@@ -1,23 +1,32 @@
-"""LLM usage tracker — stores all API call data and provides summaries.
+"""LLM usage tracker -- stores all API call data and provides summaries.
 
 The tracker is a singleton that accumulates usage across the entire session.
+Calls are stored in a bounded deque to prevent unbounded memory growth
+in long-running sessions.
 """
+
+from __future__ import annotations
 
 import threading
 import time
+from collections import deque
 from datetime import datetime, timezone
+from types import TracebackType
 
+from bannin.log import logger
 from bannin.llm.pricing import calculate_cost, get_context_window, get_provider
+
+_MAX_CALLS = 5000  # Retain last 5000 API calls (~72h at 1 call/min)
 
 
 class LLMTracker:
     """Central store for all LLM API call data."""
 
-    _instance = None
+    _instance: LLMTracker | None = None
     _lock = threading.Lock()
 
-    def __init__(self):
-        self._calls = []
+    def __init__(self) -> None:
+        self._calls: deque[dict] = deque(maxlen=_MAX_CALLS)
         self._data_lock = threading.Lock()
         self._session_start = time.time()
 
@@ -30,7 +39,7 @@ class LLMTracker:
             return cls._instance
 
     @classmethod
-    def reset(cls):
+    def reset(cls) -> None:
         """Reset the global tracker (clears all data). Mainly for testing."""
         with cls._lock:
             cls._instance = None
@@ -45,8 +54,13 @@ class LLMTracker:
         cached_tokens: int = 0,
         conversation_id: str | None = None,
         metadata: dict | None = None,
-    ):
+    ) -> None:
         """Record a single LLM API call."""
+        # Clamp to non-negative to guard against garbage values
+        input_tokens = max(0, input_tokens)
+        output_tokens = max(0, output_tokens)
+        latency_seconds = max(0.0, latency_seconds)
+
         cost = calculate_cost(model, input_tokens, output_tokens, cached_tokens)
 
         entry = {
@@ -62,7 +76,7 @@ class LLMTracker:
             "conversation_id": conversation_id,
         }
         if metadata:
-            entry["metadata"] = metadata
+            entry["metadata"] = dict(metadata)
 
         with self._data_lock:
             self._calls.append(entry)
@@ -85,7 +99,7 @@ class LLMTracker:
                 },
             })
         except Exception:
-            pass
+            logger.debug("Failed to emit LLM call to analytics pipeline")
 
     def get_summary(self) -> dict:
         """Get a full summary of all tracked LLM usage this session."""
@@ -154,8 +168,9 @@ class LLMTracker:
     def get_calls(self, limit: int | None = None) -> list[dict]:
         """Get recent calls, newest first."""
         with self._data_lock:
-            calls = list(reversed(self._calls))
+            calls = [dict(c) for c in reversed(self._calls)]
         if limit is not None:
+            limit = max(0, min(limit, len(calls)))
             calls = calls[:limit]
         return calls
 
@@ -170,7 +185,7 @@ class LLMTracker:
         Returns dict with context window info and prediction.
         """
         context_window = get_context_window(model)
-        if context_window is None:
+        if not context_window or context_window <= 0:
             return {
                 "model": model,
                 "context_window": None,
@@ -183,7 +198,8 @@ class LLMTracker:
 
         # Estimate messages remaining based on average output size
         with self._data_lock:
-            model_calls = [c for c in self._calls if c["model"] == model]
+            all_calls = list(self._calls)
+        model_calls = [c for c in all_calls if c["model"] == model]
 
         if model_calls:
             avg_tokens_per_turn = sum(c["total_tokens"] for c in model_calls) / len(model_calls)
@@ -348,7 +364,7 @@ class LLMTracker:
                 if alert["id"].startswith(("llm_", "context_", "latency_")):
                     warnings.append(alert["message"])
         except Exception:
-            pass
+            logger.debug("Failed to fetch active alerts for LLM warnings")
 
         return warnings
 
@@ -364,15 +380,16 @@ class track:
 
     _current_scope = threading.local()
 
-    def __init__(self, name: str = "default"):
+    def __init__(self, name: str = "default") -> None:
         self._name = name
+        self._previous: str | None = None
 
-    def __enter__(self):
+    def __enter__(self) -> track:
         self._previous = getattr(track._current_scope, "name", None)
         track._current_scope.name = self._name
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None) -> bool:
         track._current_scope.name = self._previous
         return False
 

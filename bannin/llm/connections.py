@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Optional
 
 import psutil
+
+from bannin.log import logger
 
 # Process names that indicate LLM tools. Maps exe name -> (display, type).
 # type: "app" = desktop app, "server" = inference server, "editor" = AI code editor
@@ -52,11 +53,12 @@ _DISPLAY_PRIORITY = {
 class LLMConnectionScanner:
     """Singleton that periodically scans for LLM processes."""
 
-    _instance: Optional["LLMConnectionScanner"] = None
+    _instance: LLMConnectionScanner | None = None
     _lock = threading.Lock()
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._data_lock = threading.Lock()
+        self._scan_lock = threading.Lock()
         self._connections: list[dict] = []
         self._last_scan: float = 0
         self._scan_interval = 10  # seconds
@@ -68,15 +70,27 @@ class LLMConnectionScanner:
                 cls._instance = cls()
             return cls._instance
 
+    @classmethod
+    def reset(cls) -> None:
+        with cls._lock:
+            cls._instance = None
+
     def get_connections(self) -> list[dict]:
         """Return detected LLM connections, scanning if stale."""
         now = time.time()
-        if now - self._last_scan >= self._scan_interval:
-            self._scan()
+        with self._data_lock:
+            stale = (now - self._last_scan >= self._scan_interval)
+        if stale:
+            # Use scan_lock to prevent duplicate concurrent scans
+            if self._scan_lock.acquire(blocking=False):
+                try:
+                    self._scan()
+                finally:
+                    self._scan_lock.release()
         with self._data_lock:
             return list(self._connections)
 
-    def _scan(self):
+    def _scan(self) -> None:
         """Scan running processes for LLM tools."""
         found: dict[str, dict] = {}
 
@@ -105,7 +119,7 @@ class LLMConnectionScanner:
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     continue
         except Exception:
-            pass
+            logger.debug("Process scan for LLM connections failed", exc_info=True)
 
         # Enrich with Ollama model data
         if "Ollama" in found:
@@ -123,11 +137,11 @@ class LLMConnectionScanner:
                         found["Ollama"]["status"] = "idle"
                         found["Ollama"]["detail"] = "No models loaded"
             except Exception:
-                pass
+                logger.debug("Failed to enrich Ollama connection data")
 
         # Check MCP sessions (pushed from MCP server processes)
         try:
-            from bannin.api import get_mcp_sessions
+            from bannin.state import get_mcp_sessions
             sessions = get_mcp_sessions()
             for sid, session_data in sessions.items():
                 label = session_data.get("client_label", "MCP Session")
@@ -149,7 +163,7 @@ class LLMConnectionScanner:
                 }
                 found[display_name] = mcp_entry
         except Exception:
-            pass
+            logger.debug("Failed to fetch MCP sessions for connection scanner")
 
         # Sort by priority
         connections = sorted(

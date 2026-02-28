@@ -5,6 +5,8 @@ indexed by timestamp, type, and severity. Thread-safe via per-thread
 connections. Auto-prunes events older than 30 days.
 """
 
+from __future__ import annotations
+
 import json
 import os
 import sqlite3
@@ -12,16 +14,17 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+
+from bannin.log import logger
 
 
 class AnalyticsStore:
     """Singleton SQLite analytics store with FTS5 full-text search."""
 
-    _instance: Optional["AnalyticsStore"] = None
+    _instance: AnalyticsStore | None = None
     _lock = threading.Lock()
 
-    def __init__(self, db_path: str | None = None):
+    def __init__(self, db_path: str | None = None) -> None:
         if db_path is None:
             store_dir = Path.home() / ".bannin"
             store_dir.mkdir(parents=True, exist_ok=True)
@@ -29,7 +32,10 @@ class AnalyticsStore:
 
         self._db_path = db_path
         self._local = threading.local()
-        self._fts_available: Optional[bool] = None
+        self._connections: dict[int, sqlite3.Connection] = {}
+        self._conn_lock = threading.Lock()
+        self._fts_lock = threading.Lock()
+        self._fts_available: bool | None = None
         self._init_db()
 
     @classmethod
@@ -40,12 +46,16 @@ class AnalyticsStore:
             return cls._instance
 
     @classmethod
-    def reset(cls):
+    def reset(cls) -> None:
         with cls._lock:
+            if cls._instance is not None:
+                cls._instance.close_all()
             cls._instance = None
 
+    _MAX_CONNECTIONS = 50
+
     def _get_conn(self) -> sqlite3.Connection:
-        """Get or create a thread-local connection."""
+        """Get or create a thread-local connection. Tracks connections by thread ID for cleanup."""
         if not hasattr(self._local, "conn") or self._local.conn is None:
             conn = sqlite3.connect(self._db_path, timeout=10)
             conn.execute("PRAGMA journal_mode=WAL")
@@ -53,22 +63,61 @@ class AnalyticsStore:
             conn.execute("PRAGMA busy_timeout=5000")
             conn.row_factory = sqlite3.Row
             self._local.conn = conn
+            with self._conn_lock:
+                # Prune connections from dead threads before adding
+                if len(self._connections) >= self._MAX_CONNECTIONS:
+                    self._prune_dead_connections()
+                if len(self._connections) >= self._MAX_CONNECTIONS:
+                    logger.warning("Connection pool exhausted (%d live connections)", len(self._connections))
+                self._connections[threading.get_ident()] = conn
         return self._local.conn
 
+    def _prune_dead_connections(self) -> None:
+        """Close connections belonging to threads that no longer exist. Must hold _conn_lock."""
+        alive_ids = {t.ident for t in threading.enumerate()}
+        stale = [tid for tid in self._connections if tid not in alive_ids]
+        for tid in stale:
+            try:
+                self._connections[tid].close()
+            except Exception:
+                logger.debug("Failed to close stale DB connection for thread %d", tid, exc_info=True)
+            del self._connections[tid]
+
+    def close_all(self) -> None:
+        """Close all thread-local connections. Called during shutdown."""
+        with self._conn_lock:
+            for conn in self._connections.values():
+                try:
+                    conn.close()
+                except Exception:
+                    logger.debug("Failed to close DB connection during shutdown", exc_info=True)
+            self._connections.clear()
+        # Invalidate calling thread's local conn so post-close usage creates a new one
+        self._local.conn = None
+
     def _check_fts5(self) -> bool:
-        """Check if FTS5 is available in this SQLite build."""
-        if self._fts_available is not None:
-            return self._fts_available
+        """Check if FTS5 is available in this SQLite build.
+
+        Uses _fts_lock (not _conn_lock) to avoid deadlock since _get_conn()
+        acquires _conn_lock internally.
+        """
+        with self._fts_lock:
+            if self._fts_available is not None:
+                return self._fts_available
         try:
             conn = self._get_conn()
             opts = conn.execute("PRAGMA compile_options").fetchall()
             opt_set = {row[0] for row in opts}
-            self._fts_available = "ENABLE_FTS5" in opt_set
+            result = "ENABLE_FTS5" in opt_set
         except Exception:
-            self._fts_available = False
-        return self._fts_available
+            logger.debug("FTS5 availability check failed")
+            result = False
+        with self._fts_lock:
+            if self._fts_available is None:
+                self._fts_available = result
+            return self._fts_available
 
-    def _init_db(self):
+    def _init_db(self) -> None:
         """Create tables and indexes."""
         conn = self._get_conn()
         conn.executescript("""
@@ -114,7 +163,7 @@ class AnalyticsStore:
 
         conn.commit()
 
-    def write_events(self, events: list[dict]):
+    def write_events(self, events: list[dict]) -> None:
         """Batch-write events to the store."""
         if not events:
             return
@@ -131,11 +180,18 @@ class AnalyticsStore:
                 json.dumps(e.get("data", {}), default=str),
             ))
 
-        conn.executemany(
-            "INSERT INTO events (ts, source, machine, type, severity, message, data) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            rows,
-        )
-        conn.commit()
+        try:
+            conn.executemany(
+                "INSERT INTO events (ts, source, machine, type, severity, message, data) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                rows,
+            )
+            conn.commit()
+        except sqlite3.Error:
+            logger.warning("Failed to write %d events to store", len(events), exc_info=True)
+            try:
+                conn.rollback()
+            except sqlite3.Error:
+                pass
 
     def query(
         self,
@@ -148,6 +204,8 @@ class AnalyticsStore:
         offset: int = 0,
     ) -> list[dict]:
         """Query events with optional filters."""
+        limit = max(1, min(limit, 10000))
+        offset = max(0, offset)
         conn = self._get_conn()
         conditions = []
         params = []
@@ -177,9 +235,10 @@ class AnalyticsStore:
 
     def search(self, query: str, limit: int = 50) -> list[dict]:
         """Full-text search across event messages."""
+        limit = max(1, min(limit, 10000))
         conn = self._get_conn()
 
-        if self._fts_available:
+        if self._check_fts5():
             try:
                 # FTS5 search with ranking
                 sql = """
@@ -192,11 +251,12 @@ class AnalyticsStore:
                 rows = conn.execute(sql, (query, limit)).fetchall()
                 return [self._row_to_dict(r) for r in rows]
             except sqlite3.OperationalError:
-                pass
+                logger.debug("FTS5 query failed, falling back to LIKE search")
 
-        # Fallback: LIKE search
-        sql = "SELECT * FROM events WHERE message LIKE ? ORDER BY ts DESC LIMIT ?"
-        rows = conn.execute(sql, (f"%{query}%", limit)).fetchall()
+        # Fallback: LIKE search (escape wildcards in user input)
+        escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        sql = "SELECT * FROM events WHERE message LIKE ? ESCAPE '\\' ORDER BY ts DESC LIMIT ?"
+        rows = conn.execute(sql, (f"%{escaped}%", limit)).fetchall()
         return [self._row_to_dict(r) for r in rows]
 
     def get_stats(self) -> dict:
@@ -204,11 +264,11 @@ class AnalyticsStore:
         conn = self._get_conn()
         total = conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
         by_type = {}
-        for row in conn.execute("SELECT type, COUNT(*) as cnt FROM events GROUP BY type ORDER BY cnt DESC"):
+        for row in conn.execute("SELECT type, COUNT(*) as cnt FROM events GROUP BY type ORDER BY cnt DESC LIMIT 100"):
             by_type[row["type"]] = row["cnt"]
 
         by_severity = {}
-        for row in conn.execute("SELECT severity, COUNT(*) as cnt FROM events WHERE severity IS NOT NULL GROUP BY severity"):
+        for row in conn.execute("SELECT severity, COUNT(*) as cnt FROM events WHERE severity IS NOT NULL GROUP BY severity LIMIT 20"):
             by_severity[row["severity"]] = row["cnt"]
 
         oldest = conn.execute("SELECT MIN(ts) FROM events").fetchone()[0]
@@ -228,8 +288,7 @@ class AnalyticsStore:
             "oldest_event": datetime.fromtimestamp(oldest, tz=timezone.utc).isoformat() if oldest else None,
             "newest_event": datetime.fromtimestamp(newest, tz=timezone.utc).isoformat() if newest else None,
             "db_size_mb": db_size_mb,
-            "db_path": self._db_path,
-            "fts_available": self._fts_available,
+            "fts_available": self._check_fts5(),
         }
 
     def get_timeline(
@@ -239,6 +298,7 @@ class AnalyticsStore:
         types: list[str] | None = None,
     ) -> list[dict]:
         """Get a timeline of events, newest first."""
+        limit = max(1, min(limit, 10000))
         conn = self._get_conn()
         conditions = []
         params = []
@@ -247,6 +307,7 @@ class AnalyticsStore:
             conditions.append("ts >= ?")
             params.append(since)
         if types:
+            types = types[:100]  # Cap to prevent exceeding SQLite variable limit
             placeholders = ",".join("?" * len(types))
             conditions.append(f"type IN ({placeholders})")
             params.extend(types)
@@ -260,6 +321,7 @@ class AnalyticsStore:
 
     def get_cost_trend(self, days: int = 7) -> list[dict]:
         """Daily LLM cost breakdown."""
+        days = max(1, min(days, 365))
         conn = self._get_conn()
         since = time.time() - (days * 86400)
         rows = conn.execute(
@@ -276,12 +338,16 @@ class AnalyticsStore:
         ).fetchall()
         return [{"day": r["day"], "calls": r["calls"], "total_cost": r["total_cost"] or 0} for r in rows]
 
-    def prune(self, max_age_days: int = 30):
-        """Delete events older than max_age_days."""
+    def prune(self, max_age_days: int = 30) -> None:
+        """Delete events older than max_age_days.
+
+        Does not VACUUM -- that acquires an exclusive lock and would block
+        all concurrent writers for the duration.  WAL mode reclaims space
+        naturally via checkpointing.
+        """
         conn = self._get_conn()
         cutoff = time.time() - (max_age_days * 86400)
         conn.execute("DELETE FROM events WHERE ts < ?", (cutoff,))
-        conn.execute("VACUUM")
         conn.commit()
 
     def _row_to_dict(self, row: sqlite3.Row) -> dict:

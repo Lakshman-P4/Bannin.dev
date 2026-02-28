@@ -7,7 +7,7 @@ name = "bannin"
 version = "0.1.0"
 description = "Universal monitoring platform — watch your machines, LLMs, notebooks, and coding tools from your phone."
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
 requires-python = ">=3.9"
 authors = [
     {name = "Bannin Team"}
@@ -17,7 +17,6 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
@@ -30,6 +29,7 @@ dependencies = [
     "psutil>=5.9.0",
     "fastapi>=0.104.0",
     "uvicorn>=0.24.0",
+    "websockets>=12.0",
 ]
 
 [project.optional-dependencies]
@@ -42,11 +42,11 @@ bannin = "bannin.cli:main"
 bannin-mcp = "bannin.mcp.__main__:main"
 
 [project.urls]
-Homepage = "https://github.com/bannin-dev/bannin"
-Issues = "https://github.com/bannin-dev/bannin/issues"
+Homepage = "https://github.com/Lakshman-P4/Bannin.dev"
+Issues = "https://github.com/Lakshman-P4/Bannin.dev/issues"
 
 [tool.setuptools.packages.find]
 include = ["bannin*"]
 
 [tool.setuptools.package-data]
-bannin = ["dashboard.html", "config/*.json"]
+bannin = ["dashboard.html", "analytics/dashboard.html", "config/*.json"]

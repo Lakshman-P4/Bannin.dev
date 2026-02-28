@@ -15,14 +15,21 @@ Streaming is also supported:
     # ^ Bannin captures usage from the final streaming chunk automatically
 """
 
+from __future__ import annotations
+
+import threading
 import time
 
+from typing import Any, Iterator
+
+from bannin.log import logger
 from bannin.llm.tracker import LLMTracker, track
 
 _WRAPPED_MARKER = "_bannin_wrapped"
+_wrap_lock = threading.Lock()
 
 
-def wrap(client):
+def wrap(client: object) -> object:
     """Wrap an LLM client for automatic token/cost tracking.
 
     Supports:
@@ -36,32 +43,34 @@ def wrap(client):
 
     Both streaming and non-streaming calls are tracked.
     """
-    if getattr(client, _WRAPPED_MARKER, False):
-        return client  # Already wrapped, don't double-wrap
+    # Atomic check+set prevents double-wrapping from concurrent threads
+    with _wrap_lock:
+        if getattr(client, _WRAPPED_MARKER, False):
+            return client  # Already wrapped, don't double-wrap
 
-    client_module = type(client).__module__ or ""
-    client_class = type(client).__name__
+        client_module = type(client).__module__ or ""
+        client_class = type(client).__name__
 
-    if "openai" in client_module:
-        _wrap_openai(client)
-    elif "anthropic" in client_module:
-        _wrap_anthropic(client)
-    elif "google" in client_module and "generative" in client_module:
-        _wrap_google(client)
-    elif client_class in ("OpenAI", "AzureOpenAI", "AsyncOpenAI"):
-        _wrap_openai(client)
-    elif client_class in ("Anthropic", "AsyncAnthropic"):
-        _wrap_anthropic(client)
-    elif client_class == "GenerativeModel":
-        _wrap_google(client)
-    else:
-        raise TypeError(
-            f"bannin.wrap(): unrecognized client type '{client_class}' "
-            f"(module: {client_module}). "
-            f"Supported: OpenAI, AzureOpenAI, Anthropic, GenerativeModel."
-        )
+        if "openai" in client_module:
+            _wrap_openai(client)
+        elif "anthropic" in client_module:
+            _wrap_anthropic(client)
+        elif "google" in client_module and "generative" in client_module:
+            _wrap_google(client)
+        elif client_class in ("OpenAI", "AzureOpenAI", "AsyncOpenAI"):
+            _wrap_openai(client)
+        elif client_class in ("Anthropic", "AsyncAnthropic"):
+            _wrap_anthropic(client)
+        elif client_class == "GenerativeModel":
+            _wrap_google(client)
+        else:
+            raise TypeError(
+                f"bannin.wrap(): unrecognized client type '{client_class}' "
+                f"(module: {client_module}). "
+                f"Supported: OpenAI, AzureOpenAI, Anthropic, GenerativeModel."
+            )
 
-    setattr(client, _WRAPPED_MARKER, True)
+        setattr(client, _WRAPPED_MARKER, True)
     return client
 
 
@@ -69,7 +78,7 @@ def wrap(client):
 # OpenAI wrapper
 # ---------------------------------------------------------------------------
 
-def _wrap_openai(client):
+def _wrap_openai(client: object) -> None:
     """Wrap OpenAI client's chat.completions.create method."""
     tracker = LLMTracker.get()
 
@@ -96,14 +105,16 @@ def _wrap_openai(client):
     except AttributeError:
         return  # Client doesn't have the expected structure
 
-    def wrapped_create(*args, **kwargs):
+    def wrapped_create(*args: object, **kwargs: object) -> object:
         is_streaming = kwargs.get("stream", False)
 
         if is_streaming:
-            # Inject stream_options to get usage data in the final chunk
+            # Copy kwargs to avoid mutating the caller's dict
+            kwargs = dict(kwargs)
             if "stream_options" not in kwargs:
                 kwargs["stream_options"] = {"include_usage": True}
             elif isinstance(kwargs["stream_options"], dict):
+                kwargs["stream_options"] = dict(kwargs["stream_options"])
                 kwargs["stream_options"].setdefault("include_usage", True)
 
             start = time.time()
@@ -119,25 +130,30 @@ def _wrap_openai(client):
             try:
                 _record_openai_usage(tracker, response, kwargs.get("model", "unknown"), latency, provider)
             except Exception:
-                pass  # Never break the user's code
+                logger.debug("Failed to record OpenAI usage")
 
             return response
 
-    client.chat.completions.create = wrapped_create
+    try:
+        client.chat.completions.create = wrapped_create
+    except (AttributeError, TypeError):
+        logger.debug("Cannot wrap OpenAI client -- read-only attribute")
+        return
 
 
 class _OpenAIStreamProxy:
     """Transparent proxy that yields OpenAI stream chunks and captures usage from the final chunk."""
 
-    def __init__(self, stream, tracker, model, provider, start_time, scope):
+    def __init__(self, stream: object, tracker: LLMTracker, model: str, provider: str, start_time: float, scope: str | None) -> None:
         self._stream = stream
         self._tracker = tracker
         self._model = model
         self._provider = provider
         self._start_time = start_time
         self._scope = scope
+        self._recorded = False
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator:
         for chunk in self._stream:
             # The final chunk has empty choices and contains usage data
             usage = getattr(chunk, "usage", None)
@@ -161,29 +177,34 @@ class _OpenAIStreamProxy:
                         cached_tokens=cached_tokens,
                         conversation_id=self._scope,
                     )
+                    self._recorded = True
                 except Exception:
-                    pass
+                    logger.debug("Failed to record OpenAI streaming usage")
             yield chunk
 
-    def __enter__(self):
+    def __enter__(self) -> _OpenAIStreamProxy:
         if hasattr(self._stream, "__enter__"):
             self._stream.__enter__()
         return self
 
-    def __exit__(self, *args):
+    def __exit__(self, *args: object) -> bool:
+        if not self._recorded:
+            logger.debug("OpenAI stream exited before usage chunk received; partial data lost")
         if hasattr(self._stream, "__exit__"):
             return self._stream.__exit__(*args)
         return False
 
-    def close(self):
+    def close(self) -> None:
+        if not self._recorded:
+            logger.debug("OpenAI stream closed before usage chunk received; partial data lost")
         if hasattr(self._stream, "close"):
             self._stream.close()
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> Any:
         return getattr(self._stream, name)
 
 
-def _record_openai_usage(tracker, response, model, latency, provider):
+def _record_openai_usage(tracker: LLMTracker, response: object, model: str, latency: float, provider: str) -> None:
     """Extract token usage from an OpenAI response and record it."""
     usage = getattr(response, "usage", None)
     if usage is None:
@@ -218,7 +239,7 @@ def _record_openai_usage(tracker, response, model, latency, provider):
 # Anthropic wrapper
 # ---------------------------------------------------------------------------
 
-def _wrap_anthropic(client):
+def _wrap_anthropic(client: object) -> None:
     """Wrap Anthropic client's messages.create method."""
     tracker = LLMTracker.get()
 
@@ -227,7 +248,7 @@ def _wrap_anthropic(client):
     except AttributeError:
         return
 
-    def wrapped_create(*args, **kwargs):
+    def wrapped_create(*args: object, **kwargs: object) -> object:
         is_streaming = kwargs.get("stream", False)
 
         if is_streaming:
@@ -244,17 +265,21 @@ def _wrap_anthropic(client):
             try:
                 _record_anthropic_usage(tracker, response, kwargs.get("model", "unknown"), latency)
             except Exception:
-                pass
+                logger.debug("Failed to record Anthropic usage")
 
             return response
 
-    client.messages.create = wrapped_create
+    try:
+        client.messages.create = wrapped_create
+    except (AttributeError, TypeError):
+        logger.debug("Cannot wrap Anthropic client -- read-only attribute")
+        return
 
 
 class _AnthropicStreamProxy:
     """Transparent proxy that yields Anthropic stream events and captures usage."""
 
-    def __init__(self, stream, tracker, model, start_time, scope):
+    def __init__(self, stream: object, tracker: LLMTracker, model: str, start_time: float, scope: str | None) -> None:
         self._stream = stream
         self._tracker = tracker
         self._model = model
@@ -264,13 +289,13 @@ class _AnthropicStreamProxy:
         self._output_tokens = 0
         self._cached_tokens = 0
         self._actual_model = model
+        self._recorded = False
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator:
         for event in self._stream:
             event_type = getattr(event, "type", "")
 
             if event_type == "message_start":
-                # message_start contains input_tokens and the model name
                 msg = getattr(event, "message", None)
                 if msg:
                     usage = getattr(msg, "usage", None)
@@ -279,49 +304,58 @@ class _AnthropicStreamProxy:
                     self._actual_model = getattr(msg, "model", self._model)
 
             elif event_type == "message_delta":
-                # message_delta contains the final output_tokens count
                 usage = getattr(event, "usage", None)
                 if usage:
                     self._output_tokens = getattr(usage, "output_tokens", 0) or 0
                     self._cached_tokens = getattr(usage, "cache_read_input_tokens", 0) or 0
 
             elif event_type == "message_stop":
-                # Stream finished — record the usage
-                try:
-                    latency = time.time() - self._start_time
-                    self._tracker.record(
-                        provider="anthropic",
-                        model=self._actual_model,
-                        input_tokens=self._input_tokens,
-                        output_tokens=self._output_tokens,
-                        latency_seconds=latency,
-                        cached_tokens=self._cached_tokens,
-                        conversation_id=self._scope,
-                    )
-                except Exception:
-                    pass
+                self._record_usage()
 
             yield event
 
-    def __enter__(self):
+    def _record_usage(self) -> None:
+        """Record accumulated usage data. Safe to call multiple times."""
+        if self._recorded:
+            return
+        try:
+            latency = time.time() - self._start_time
+            self._tracker.record(
+                provider="anthropic",
+                model=self._actual_model,
+                input_tokens=self._input_tokens,
+                output_tokens=self._output_tokens,
+                latency_seconds=latency,
+                cached_tokens=self._cached_tokens,
+                conversation_id=self._scope,
+            )
+            self._recorded = True
+        except Exception:
+            logger.debug("Failed to record Anthropic streaming usage")
+
+    def __enter__(self) -> _AnthropicStreamProxy:
         if hasattr(self._stream, "__enter__"):
             self._stream.__enter__()
         return self
 
-    def __exit__(self, *args):
+    def __exit__(self, *args: object) -> bool:
+        # Record partial data if stream exited before message_stop
+        self._record_usage()
         if hasattr(self._stream, "__exit__"):
             return self._stream.__exit__(*args)
         return False
 
-    def close(self):
+    def close(self) -> None:
+        # Record partial data if stream was closed before message_stop
+        self._record_usage()
         if hasattr(self._stream, "close"):
             self._stream.close()
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> Any:
         return getattr(self._stream, name)
 
 
-def _record_anthropic_usage(tracker, response, model, latency):
+def _record_anthropic_usage(tracker: LLMTracker, response: object, model: str, latency: float) -> None:
     """Extract token usage from an Anthropic response and record it."""
     usage = getattr(response, "usage", None)
     if usage is None:
@@ -349,7 +383,7 @@ def _record_anthropic_usage(tracker, response, model, latency):
 # Google Generative AI wrapper
 # ---------------------------------------------------------------------------
 
-def _wrap_google(model):
+def _wrap_google(model: object) -> None:
     """Wrap Google GenerativeModel's generate_content method."""
     tracker = LLMTracker.get()
 
@@ -364,7 +398,7 @@ def _wrap_google(model):
     if isinstance(model_name, str) and model_name.startswith("models/"):
         model_name = model_name[7:]
 
-    def wrapped_generate(*args, **kwargs):
+    def wrapped_generate(*args: object, **kwargs: object) -> object:
         is_streaming = kwargs.get("stream", False)
 
         if is_streaming:
@@ -380,70 +414,85 @@ def _wrap_google(model):
             try:
                 _record_google_usage(tracker, response, model_name, latency)
             except Exception:
-                pass
+                logger.debug("Failed to record Google usage")
 
             return response
 
-    model.generate_content = wrapped_generate
+    try:
+        model.generate_content = wrapped_generate
+    except (AttributeError, TypeError):
+        logger.debug("Cannot wrap Google GenerativeModel -- read-only attribute")
+        return
 
 
 class _GoogleStreamProxy:
     """Transparent proxy that yields Google Gemini stream chunks and captures usage from the last chunk."""
 
-    def __init__(self, stream, tracker, model_name, start_time, scope):
+    def __init__(self, stream: object, tracker: LLMTracker, model_name: str, start_time: float, scope: str | None) -> None:
         self._stream = stream
         self._tracker = tracker
         self._model_name = model_name
         self._start_time = start_time
         self._scope = scope
+        self._last_chunk = None
+        self._recorded = False
 
-    def __iter__(self):
-        last_chunk = None
+    def __iter__(self) -> Iterator:
         for chunk in self._stream:
-            last_chunk = chunk
+            self._last_chunk = chunk
             yield chunk
 
         # Stream finished — extract usage from the last chunk
-        if last_chunk is not None:
-            try:
-                latency = time.time() - self._start_time
-                metadata = getattr(last_chunk, "usage_metadata", None)
-                if metadata:
-                    input_tokens = getattr(metadata, "prompt_token_count", 0) or 0
-                    output_tokens = getattr(metadata, "candidates_token_count", 0) or 0
-                    cached_tokens = getattr(metadata, "cached_content_token_count", 0) or 0
+        self._record_usage()
 
-                    self._tracker.record(
-                        provider="google",
-                        model=self._model_name,
-                        input_tokens=input_tokens,
-                        output_tokens=output_tokens,
-                        latency_seconds=latency,
-                        cached_tokens=cached_tokens,
-                        conversation_id=self._scope,
-                    )
-            except Exception:
-                pass
+    def _record_usage(self) -> None:
+        """Record usage from the last chunk. Safe to call multiple times."""
+        if self._recorded or self._last_chunk is None:
+            return
+        try:
+            latency = time.time() - self._start_time
+            metadata = getattr(self._last_chunk, "usage_metadata", None)
+            if metadata:
+                input_tokens = getattr(metadata, "prompt_token_count", 0) or 0
+                output_tokens = getattr(metadata, "candidates_token_count", 0) or 0
+                cached_tokens = getattr(metadata, "cached_content_token_count", 0) or 0
 
-    def __enter__(self):
+                self._tracker.record(
+                    provider="google",
+                    model=self._model_name,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    latency_seconds=latency,
+                    cached_tokens=cached_tokens,
+                    conversation_id=self._scope,
+                )
+            self._recorded = True
+        except Exception:
+            logger.debug("Failed to record Google streaming usage")
+
+    def __enter__(self) -> _GoogleStreamProxy:
         if hasattr(self._stream, "__enter__"):
             self._stream.__enter__()
         return self
 
-    def __exit__(self, *args):
+    def __exit__(self, *args: object) -> bool:
+        # Record partial data if stream exited before full iteration
+        self._record_usage()
         if hasattr(self._stream, "__exit__"):
             return self._stream.__exit__(*args)
         return False
 
-    def close(self):
+    def close(self) -> None:
+        # Record partial data if stream was closed before full iteration
+        self._record_usage()
         if hasattr(self._stream, "close"):
             self._stream.close()
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> Any:
         return getattr(self._stream, name)
 
 
-def _record_google_usage(tracker, response, model_name, latency):
+def _record_google_usage(tracker: LLMTracker, response: object, model_name: str, latency: float) -> None:
     """Extract token usage from a Google Gemini response and record it."""
     # usage_metadata can be on the response directly or accessed via attribute
     metadata = getattr(response, "usage_metadata", None)

@@ -5,8 +5,11 @@ healthy, busy, strained, critical. Includes suggestions when stressed.
 No LLM calls — purely rule-based.
 """
 
+from __future__ import annotations
+
 from bannin.core.collector import get_cpu_metrics, get_memory_metrics, get_disk_metrics
 from bannin.core.process import get_resource_breakdown
+from bannin.log import logger
 
 
 def generate_summary() -> dict:
@@ -20,10 +23,19 @@ def generate_summary() -> dict:
             "suggestions": ["Close some Chrome tabs to free up memory."],
         }
     """
-    cpu = get_cpu_metrics()
-    mem = get_memory_metrics()
-    disk = get_disk_metrics()
-    breakdown = get_resource_breakdown()
+    try:
+        cpu = get_cpu_metrics()
+        mem = get_memory_metrics()
+        disk = get_disk_metrics()
+        breakdown = get_resource_breakdown()
+    except Exception:
+        logger.warning("Failed to collect metrics for summary", exc_info=True)
+        return {
+            "level": "healthy",
+            "headline": "Unable to collect system metrics right now.",
+            "details": "Metric collection encountered an error. This is usually temporary.",
+            "suggestions": [],
+        }
 
     cpu_pct = cpu.get("percent", 0)
     ram_pct = mem.get("percent", 0)

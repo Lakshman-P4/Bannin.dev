@@ -1,57 +1,29 @@
-"""Bannin chatbot engine — rule-based, data-driven system health assistant.
+"""Bannin chatbot engine -- rule-based, data-driven system health assistant.
 
 Detects user intent from natural language, pulls real metrics from Bannin
 collectors, and returns actionable responses. No external LLM dependency.
-Handles off-topic and unsupported queries conversationally.
 """
 
 from __future__ import annotations
 
 import os
 import platform
-import random
 import re
+import threading
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Callable
 
 from bannin.core.collector import get_cpu_metrics, get_memory_metrics, get_disk_metrics
 from bannin.core.process import get_grouped_processes, get_resource_breakdown
+from bannin.log import logger
 
 
 # ---------------------------------------------------------------------------
-# Intent detection — ordered by priority (more specific first)
+# Intent detection -- ordered by priority (more specific first)
 # ---------------------------------------------------------------------------
 
 _INTENT_PATTERNS: list[tuple[str, re.Pattern]] = [
-    # Social / off-topic — must be checked before "health" (which matches "how's")
-    ("greeting", re.compile(
-        r"^(hi|hey|hello|yo|sup|what'?s up|howdy|good (morning|afternoon|evening))[\s!?.]*$",
-        re.IGNORECASE,
-    )),
-    ("how_are_you", re.compile(
-        r"how are you|how.?re you|how you doing|how do you feel|you doing ok|you good",
-        re.IGNORECASE,
-    )),
-    ("thanks", re.compile(
-        r"^(thanks?|thank you|thx|cheers|appreciate|nice one|good job|well done)[\s!?.]*$",
-        re.IGNORECASE,
-    )),
-    ("who_are_you", re.compile(
-        r"who are you|what are you|what.?s your name|tell me about yourself|what do you do",
-        re.IGNORECASE,
-    )),
-    # Philosophical / abstract — catch before health so "system" doesn't trigger a health check
-    ("philosophical", re.compile(
-        r"meaning of life|quality of life|improve my life|make me happy|"
-        r"will .+ (help|save|fix) (me|my life|everything)|purpose|"
-        r"what should i do with|is it worth|should i give up|"
-        r"are you alive|sentient|conscious|do you think|"
-        r"can you feel|do you dream|will ai|future of|"
-        r"love|friend|lonely|bored|sad|angry|stressed|anxious|depressed",
-        re.IGNORECASE,
-    )),
-    # Unsupported requests
     ("unsupported", re.compile(
         r"battery|charge|charg|wifi|wi-fi|bluetooth|screen bright|volume|"
         r"weather|time|date|alarm|timer|reminder|calendar|email|message|"
@@ -60,7 +32,6 @@ _INTENT_PATTERNS: list[tuple[str, re.Pattern]] = [
         r"screenshot|camera|photo|record|password|login",
         re.IGNORECASE,
     )),
-    # Bannin-specific intents
     ("history", re.compile(
         r"what happened|while i was (away|gone|out)|recent events|event log|history|"
         r"what did i miss|anything happen|any alerts|past alerts|^alerts?[\s!?.]*$",
@@ -78,7 +49,6 @@ _INTENT_PATTERNS: list[tuple[str, re.Pattern]] = [
         r"check.*(chat|conversation|context)|llm health|^conversation[\s!?.]*$",
         re.IGNORECASE,
     )),
-    # System monitoring intents
     ("disk", re.compile(
         r"disk|storage|space|free up|clean|large files|what.s taking.*(space|room)|"
         r"clear|cache|temp|reclaim|drive|gb free|folder.*(big|large|size)|"
@@ -108,10 +78,6 @@ _INTENT_PATTERNS: list[tuple[str, re.Pattern]] = [
         r"^(health|system|status)[\s!?.]*$",
         re.IGNORECASE,
     )),
-    ("help", re.compile(
-        r"^(help|what can you|commands|options|menu|\?)[\s!?.]*$",
-        re.IGNORECASE,
-    )),
 ]
 
 
@@ -121,137 +87,6 @@ def _detect_intent(message: str) -> str:
         if pattern.search(message):
             return intent
     return "general"
-
-
-# ---------------------------------------------------------------------------
-# Conversational / social handlers
-# ---------------------------------------------------------------------------
-
-_GREETING_RESPONSES = [
-    "Hey there. I'm keeping an eye on your system right now.",
-    "Hi. Your watchman is on duty.",
-    "Hello. Everything's being monitored as we speak.",
-    "Hey. I've got my eye on things.",
-]
-
-_GREETING_FOLLOWUPS = [
-    "What part of your system would you like to check?",
-    "Want me to look at your disk, memory, CPU, or running processes?",
-    "Ask me about anything -- disk space, RAM, CPU, or what's running.",
-    "How can I help you with your system's health?",
-]
-
-
-def _handle_greeting(message: str) -> dict:
-    response = random.choice(_GREETING_RESPONSES)
-    followup = random.choice(_GREETING_FOLLOWUPS)
-    return {
-        "intent": "greeting",
-        "response": f"{response}\n\n{followup}",
-        "data": {},
-    }
-
-
-_HOW_ARE_YOU_RESPONSES = [
-    "Running smoothly over here. No complaints from the watchman.",
-    "I'm doing well -- been watching your metrics quietly in the background.",
-    "All good on my end. Been keeping track of everything since you started me up.",
-    "Can't complain. I don't sleep, so I've been monitoring the whole time.",
-    "Doing great. I've been counting your processes and watching memory trends.",
-]
-
-
-def _handle_how_are_you(message: str) -> dict:
-    from bannin.intelligence.summary import generate_summary
-    summary = generate_summary()
-
-    response = random.choice(_HOW_ARE_YOU_RESPONSES)
-    level = summary.get("level", "healthy")
-
-    if level == "healthy":
-        bridge = "Your system's doing well too."
-    elif level == "busy":
-        bridge = "Your system's a bit busy though."
-    elif level == "strained":
-        bridge = "But your system could use some attention."
-    else:
-        bridge = "But your system is under strain right now."
-
-    followup = "Want me to dig into anything specific -- disk, memory, CPU, or processes?"
-
-    return {
-        "intent": "how_are_you",
-        "response": f"{response}\n\n{bridge} {followup}",
-        "data": summary,
-    }
-
-
-def _handle_philosophical(message: str) -> dict:
-    from bannin.intelligence.summary import generate_summary
-    summary = generate_summary()
-    mem = get_memory_metrics()
-    disk = get_disk_metrics()
-
-    openers = [
-        "That's a big question. I'm just a watchman, but I'll tell you what I know.",
-        "I think about uptime, not the meaning of life -- but I respect the question.",
-        "I'm better with gigabytes than philosophy, but here's my take.",
-        "Deep question. I'll stick to what I'm good at, but let me try.",
-    ]
-
-    # Build a bridge from the abstract to the concrete
-    bridges = []
-    if mem["percent"] >= 80:
-        bridges.append(f"What I can tell you is that your RAM is at {mem['percent']:.0f}% right now -- fixing that would definitely improve your computer experience.")
-    if disk["percent"] >= 80:
-        bridges.append(f"Your disk is {disk['percent']:.0f}% full. Clearing some space would make things feel faster and less frustrating.")
-
-    if not bridges:
-        bridges.append("Your system is running well right now. One less thing to worry about.")
-
-    followup = "I might not have all the answers, but I can help with the ones about your system. What would you like to check?"
-
-    return {
-        "intent": "philosophical",
-        "response": f"{random.choice(openers)}\n\n{' '.join(bridges)}\n\n{followup}",
-        "data": summary,
-    }
-
-
-def _handle_thanks(message: str) -> dict:
-    responses = [
-        "Anytime. That's what I'm here for.",
-        "No problem. Let me know if you need anything else checked.",
-        "You're welcome. I'll keep watching.",
-        "Happy to help. I'm here whenever you need a system check.",
-    ]
-    followup = "Anything else you'd like me to look at?"
-    return {
-        "intent": "thanks",
-        "response": f"{random.choice(responses)}\n\n{followup}",
-        "data": {},
-    }
-
-
-def _handle_who_are_you(message: str) -> dict:
-    lines = [
-        "I'm **Bannin** -- your system's watchman.",
-        "",
-        "I monitor your computer's health in real time: CPU load, memory pressure, "
-        "disk usage, and what processes are consuming your resources. I can predict "
-        "out-of-memory crashes before they happen, and I give you specific steps to "
-        "improve things.",
-        "",
-        "I also track LLM API usage (tokens, cost, latency) and monitor cloud "
-        "notebooks like Google Colab and Kaggle.",
-        "",
-        "What would you like me to check for you?",
-    ]
-    return {
-        "intent": "who_are_you",
-        "response": "\n".join(lines),
-        "data": {},
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -277,7 +112,6 @@ _UNSUPPORTED_SPECIFIC: dict[str, str] = {
 def _handle_unsupported(message: str) -> dict:
     msg_lower = message.lower()
 
-    # Find specific match for a better response
     explanation = None
     for keyword, specific_msg in _UNSUPPORTED_SPECIFIC.items():
         if keyword in msg_lower:
@@ -314,19 +148,27 @@ def _handle_unsupported(message: str) -> dict:
 
 _CLEANUP_TARGETS: list[dict] = [
     {"name": "Windows Temp", "path": lambda: os.environ.get("TEMP", ""), "platform": "Windows"},
-    {"name": "Windows Prefetch", "path": lambda: r"C:\Windows\Prefetch", "platform": "Windows"},
-    {"name": "Recycle Bin (approx)", "path": lambda: r"C:\$Recycle.Bin", "platform": "Windows"},
+    {"name": "Windows Prefetch", "path": lambda: os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "Prefetch"), "platform": "Windows"},
+    {"name": "Recycle Bin (approx)", "path": lambda: os.path.join(os.environ.get("SystemDrive", "C:") + os.sep, "$Recycle.Bin"), "platform": "Windows"},
     {"name": "npm cache", "path": lambda: str(Path.home() / "AppData" / "Local" / "npm-cache") if platform.system() == "Windows" else str(Path.home() / ".npm"), "platform": "any"},
     {"name": "pip cache", "path": lambda: str(Path.home() / "AppData" / "Local" / "pip" / "cache") if platform.system() == "Windows" else str(Path.home() / ".cache" / "pip"), "platform": "any"},
-    {"name": "Windows Update cache", "path": lambda: r"C:\Windows\SoftwareDistribution\Download", "platform": "Windows"},
+    {"name": "Windows Update cache", "path": lambda: os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "SoftwareDistribution", "Download"), "platform": "Windows"},
     {"name": "Chrome cache", "path": lambda: str(Path.home() / "AppData" / "Local" / "Google" / "Chrome" / "User Data" / "Default" / "Cache"), "platform": "Windows"},
     {"name": "VS Code cache", "path": lambda: str(Path.home() / "AppData" / "Roaming" / "Code" / "Cache"), "platform": "Windows"},
     {"name": "Thumbnails cache", "path": lambda: str(Path.home() / "AppData" / "Local" / "Microsoft" / "Windows" / "Explorer"), "platform": "Windows"},
 ]
 
 
-def _get_dir_size(path: str, max_depth: int = 3) -> Optional[float]:
+def _get_dir_size(path: str, max_depth: int = 3) -> float | None:
     """Get directory size in GB. Returns None if inaccessible."""
+    size_bytes = _get_dir_size_bytes(path, max_depth)
+    if size_bytes is None:
+        return None
+    return round(size_bytes / (1024 ** 3), 2)
+
+
+def _get_dir_size_bytes(path: str, max_depth: int = 3) -> int | None:
+    """Get directory size in bytes. Returns None if inaccessible."""
     total = 0
     try:
         for entry in os.scandir(path):
@@ -334,25 +176,28 @@ def _get_dir_size(path: str, max_depth: int = 3) -> Optional[float]:
                 if entry.is_file(follow_symlinks=False):
                     total += entry.stat(follow_symlinks=False).st_size
                 elif entry.is_dir(follow_symlinks=False) and max_depth > 0:
-                    sub = _get_dir_size(entry.path, max_depth - 1)
+                    sub = _get_dir_size_bytes(entry.path, max_depth - 1)
                     if sub is not None:
-                        total += int(sub * (1024 ** 3))
+                        total += sub
             except (PermissionError, OSError):
                 continue
     except (PermissionError, OSError):
         return None
-    return round(total / (1024 ** 3), 2)
+    return total
 
 
 def _scan_user_directories() -> list[dict]:
-    """Scan major user directories and return sizes."""
+    """Scan major user directories and return sizes. Time-bounded to 5 seconds."""
     home = Path.home()
     targets = [
         "Desktop", "Documents", "Downloads", "Pictures", "Videos", "Music",
         "OneDrive", "AppData",
     ]
     results = []
+    scan_start = time.time()
     for name in targets:
+        if time.time() - scan_start > 5:
+            break
         d = home / name
         if d.exists() and d.is_dir():
             size = _get_dir_size(str(d), max_depth=2)
@@ -363,10 +208,13 @@ def _scan_user_directories() -> list[dict]:
 
 
 def _scan_cleanup_targets() -> list[dict]:
-    """Scan known cleanup directories and return sizes."""
+    """Scan known cleanup directories and return sizes. Time-bounded to 5 seconds."""
     current_platform = platform.system()
     results = []
+    scan_start = time.time()
     for target in _CLEANUP_TARGETS:
+        if time.time() - scan_start > 5:
+            break
         if target["platform"] not in ("any", current_platform):
             continue
         path = target["path"]()
@@ -383,6 +231,27 @@ def _scan_cleanup_targets() -> list[dict]:
     return results
 
 
+_disk_scan_lock = threading.Lock()
+_disk_scan_cache: dict[str, tuple[float, list]] = {}
+_DISK_CACHE_TTL = 30  # seconds
+
+
+def _cached_scan(name: str, scan_fn: Callable[[], list]) -> list:
+    """Return cached scan results if fresh, otherwise re-scan."""
+    now = time.time()
+    with _disk_scan_lock:
+        # Bound cache size to prevent unbounded growth
+        if len(_disk_scan_cache) > 10:
+            _disk_scan_cache.clear()
+        cached = _disk_scan_cache.get(name)
+        if cached and (now - cached[0]) < _DISK_CACHE_TTL:
+            return list(cached[1])
+    result = scan_fn()
+    with _disk_scan_lock:
+        _disk_scan_cache[name] = (now, result)
+    return result
+
+
 def _format_size(gb: float) -> str:
     """Format size for display."""
     if gb >= 1.0:
@@ -392,7 +261,12 @@ def _format_size(gb: float) -> str:
 
 
 def _handle_disk(message: str) -> dict:
-    disk = get_disk_metrics()
+    try:
+        disk = get_disk_metrics()
+    except Exception:
+        logger.warning("Failed to collect disk metrics for chat", exc_info=True)
+        return {"intent": "disk", "response": "I couldn't read disk metrics right now. Try again in a moment.", "data": {}}
+
     used = disk["used_gb"]
     total = disk["total_gb"]
     free = disk["free_gb"]
@@ -403,14 +277,14 @@ def _handle_disk(message: str) -> dict:
         "",
     ]
 
-    user_dirs = _scan_user_directories()
+    user_dirs = _cached_scan("user_dirs", _scan_user_directories)
     if user_dirs:
         lines.append("**Your largest folders:**")
         for d in user_dirs[:8]:
             lines.append(f"- {d['name']}: {_format_size(d['size_gb'])}")
         lines.append("")
 
-    cleanup = _scan_cleanup_targets()
+    cleanup = _cached_scan("cleanup", _scan_cleanup_targets)
     reclaimable = sum(c["size_gb"] for c in cleanup)
     if cleanup:
         lines.append(f"**Cleanup opportunities** (~{_format_size(reclaimable)} reclaimable):")
@@ -421,8 +295,8 @@ def _handle_disk(message: str) -> dict:
     lines.append("**What you can do:**")
     if pct >= 90:
         lines.append("- Your disk is critically full. Prioritize clearing Downloads and temp files.")
-    if any(d["name"] == "Downloads" and d["size_gb"] > 1.0 for d in user_dirs):
-        dl = next(d for d in user_dirs if d["name"] == "Downloads")
+    dl = next((d for d in user_dirs if d["name"] == "Downloads" and d["size_gb"] > 1.0), None)
+    if dl:
         lines.append(f"- Check Downloads ({_format_size(dl['size_gb'])}) for installers and old files you no longer need.")
     if any(c["name"] == "npm cache" for c in cleanup):
         lines.append("- Run `npm cache clean --force` to clear the npm cache.")
@@ -453,8 +327,13 @@ def _handle_disk(message: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def _handle_memory(message: str) -> dict:
-    mem = get_memory_metrics()
-    breakdown = get_resource_breakdown()
+    try:
+        mem = get_memory_metrics()
+        breakdown = get_resource_breakdown()
+    except Exception:
+        logger.warning("Failed to collect memory metrics for chat", exc_info=True)
+        return {"intent": "memory", "response": "I couldn't read memory metrics right now. Try again in a moment.", "data": {}}
+    # Unpack after successful collection
     top_ram = breakdown.get("ram", [])
 
     lines = [
@@ -511,8 +390,12 @@ def _handle_memory(message: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def _handle_cpu(message: str) -> dict:
-    cpu = get_cpu_metrics()
-    breakdown = get_resource_breakdown()
+    try:
+        cpu = get_cpu_metrics()
+        breakdown = get_resource_breakdown()
+    except Exception:
+        logger.warning("Failed to collect CPU metrics for chat", exc_info=True)
+        return {"intent": "cpu", "response": "I couldn't read CPU metrics right now. Try again in a moment.", "data": {}}
     top_cpu = breakdown.get("cpu", [])
 
     lines = [
@@ -621,60 +504,7 @@ def _handle_health(message: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Help handler
-# ---------------------------------------------------------------------------
-
-def _handle_help(message: str) -> dict:
-    lines = [
-        "Here's what I can help with:",
-        "",
-        '- **"Why is my disk so full?"** -- storage analysis with cleanup suggestions',
-        '- **"What\'s eating my memory?"** -- RAM breakdown by application',
-        '- **"How\'s my CPU?"** -- processor load and hot cores',
-        '- **"What\'s running?"** -- top processes by resource usage',
-        '- **"How\'s my system?"** -- overall health check',
-        '- **"Help me free up space"** -- actionable disk cleanup guide',
-        "",
-        "I pull real data from your system -- every answer reflects what's happening right now.",
-        "",
-        "What would you like to check?",
-    ]
-    return {
-        "intent": "help",
-        "response": "\n".join(lines),
-        "data": {},
-    }
-
-
-# ---------------------------------------------------------------------------
-# General fallback — smarter redirect
-# ---------------------------------------------------------------------------
-
-def _handle_general(message: str) -> dict:
-    from bannin.intelligence.summary import generate_summary
-    summary = generate_summary()
-    level = summary.get("level", "healthy")
-
-    # Give a quick status then redirect
-    if level in ("strained", "critical"):
-        opener = f"I'm not sure what you mean, but I did notice your system is **{level}** right now."
-        nudge = "Want me to take a closer look at what's going on?"
-    elif level == "busy":
-        opener = "I didn't quite catch that, but your system is a little busy at the moment."
-        nudge = "I can check your disk, memory, CPU, or running processes -- which one?"
-    else:
-        opener = "I'm not sure I understood that."
-        nudge = "I can help with disk space, memory, CPU, or running processes. What would you like to check?"
-
-    return {
-        "intent": "general",
-        "response": f"{opener}\n\n{nudge}",
-        "data": summary,
-    }
-
-
-# ---------------------------------------------------------------------------
-# Main entry point
+# History handler
 # ---------------------------------------------------------------------------
 
 def _handle_history(message: str) -> dict:
@@ -692,7 +522,6 @@ def _handle_history(message: str) -> dict:
                 "data": {},
             }
 
-        # Get recent alerts and notable events
         alerts = store.query(event_type="alert", limit=10)
         sessions = store.query(event_type="session_start", limit=5)
         ollama = store.query(event_type="ollama_model_load", limit=5)
@@ -730,12 +559,17 @@ def _handle_history(message: str) -> dict:
             "data": stats,
         }
     except Exception:
+        logger.debug("History handler failed", exc_info=True)
         return {
             "intent": "history",
             "response": "I couldn't access the event history. The analytics store may not be initialized yet.",
             "data": {},
         }
 
+
+# ---------------------------------------------------------------------------
+# Ollama handler
+# ---------------------------------------------------------------------------
 
 def _handle_ollama(message: str) -> dict:
     """Handle Ollama/local LLM queries."""
@@ -780,6 +614,7 @@ def _handle_ollama(message: str) -> dict:
             "data": ollama,
         }
     except Exception:
+        logger.debug("Ollama handler failed", exc_info=True)
         return {
             "intent": "ollama",
             "response": "I couldn't check Ollama status. It may not be installed or the monitor isn't running.",
@@ -787,41 +622,16 @@ def _handle_ollama(message: str) -> dict:
         }
 
 
+# ---------------------------------------------------------------------------
+# LLM health handler
+# ---------------------------------------------------------------------------
+
 def _handle_llm_health(message: str) -> dict:
     """Handle conversation health queries -- lists all active sessions individually."""
     try:
-        from bannin.llm.tracker import LLMTracker
+        from bannin.llm.aggregator import compute_health
 
-        # Fetch combined health (includes per_source)
-        try:
-            import urllib.request
-            import json as _json
-            req = urllib.request.Request("http://localhost:8420/llm/health", method="GET")
-            resp = urllib.request.urlopen(req, timeout=3)
-            health = _json.loads(resp.read())
-        except Exception:
-            # Fallback: compute locally
-            session_fatigue = None
-            vram_pressure = None
-            try:
-                from bannin.api import get_mcp_session_data
-                mcp_data = get_mcp_session_data()
-                if mcp_data:
-                    session_fatigue = mcp_data
-            except Exception:
-                pass
-            try:
-                from bannin.llm.ollama import OllamaMonitor
-                ollama = OllamaMonitor.get().get_health()
-                if ollama.get("available"):
-                    vram_pressure = ollama.get("vram_pressure")
-            except Exception:
-                pass
-            tracker = LLMTracker.get()
-            health = tracker.get_health(
-                session_fatigue=session_fatigue,
-                vram_pressure=vram_pressure,
-            )
+        health = compute_health()
 
         score = health.get("health_score", 100)
         rating = health.get("rating", "excellent")
@@ -869,6 +679,7 @@ def _handle_llm_health(message: str) -> dict:
             "data": health,
         }
     except Exception:
+        logger.debug("LLM health handler failed", exc_info=True)
         return {
             "intent": "llm_health",
             "response": "I couldn't compute conversation health right now. The health scoring module may not be initialized.",
@@ -876,23 +687,38 @@ def _handle_llm_health(message: str) -> dict:
         }
 
 
-_HANDLERS = {
+# ---------------------------------------------------------------------------
+# General fallback
+# ---------------------------------------------------------------------------
+
+def _handle_fallback(message: str) -> dict:
+    return {
+        "intent": "general",
+        "response": (
+            "I focus on system health monitoring -- disk, memory, CPU, "
+            "processes, and conversation health.\n\n"
+            "Try asking about your disk space, RAM usage, CPU load, "
+            "running processes, or conversation health."
+        ),
+        "data": {},
+    }
+
+
+# ---------------------------------------------------------------------------
+# Handler dispatch
+# ---------------------------------------------------------------------------
+
+_HANDLERS: dict[str, Callable[[str], dict]] = {
     "disk": _handle_disk,
     "memory": _handle_memory,
     "cpu": _handle_cpu,
     "process": _handle_process,
     "health": _handle_health,
-    "help": _handle_help,
-    "greeting": _handle_greeting,
-    "how_are_you": _handle_how_are_you,
-    "thanks": _handle_thanks,
-    "who_are_you": _handle_who_are_you,
-    "philosophical": _handle_philosophical,
     "unsupported": _handle_unsupported,
     "history": _handle_history,
     "ollama": _handle_ollama,
     "llm_health": _handle_llm_health,
-    "general": _handle_general,
+    "general": _handle_fallback,
 }
 
 
@@ -910,6 +736,11 @@ def chat(message: str) -> dict:
     if not message:
         return {"intent": "empty", "response": "Ask me anything about your system.", "data": {}}
 
+    # Truncate overly long messages to prevent regex DoS and memory waste
+    if len(message) > 2000:
+        logger.debug("Chat message truncated from %d to 2000 chars", len(message))
+        message = message[:2000]
+
     intent = _detect_intent(message)
-    handler = _HANDLERS.get(intent, _handle_general)
+    handler = _HANDLERS.get(intent, _handle_fallback)
     return handler(message)

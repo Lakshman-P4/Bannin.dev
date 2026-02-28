@@ -5,10 +5,16 @@ live system data every collection cycle. Handles deduplication
 (cooldowns) so the same alert doesn't fire repeatedly.
 """
 
+from __future__ import annotations
+
+import collections
 import operator as op
 import threading
 import time
 from datetime import datetime, timezone
+from typing import Any
+
+from bannin.log import logger
 
 
 # Map string operators to Python functions
@@ -28,10 +34,10 @@ class ThresholdEngine:
     _instance = None
     _lock = threading.Lock()
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._rules = self._load_rules()
-        self._alert_history = []  # All alerts ever fired this session
-        self._last_fired = {}  # rule_id -> epoch of last fire (for cooldowns)
+        self._alert_history: collections.deque = collections.deque(maxlen=2000)
+        self._last_fired: dict[str, float] = {}
         self._data_lock = threading.RLock()
         self._current_platform = self._detect_platform()
 
@@ -43,7 +49,7 @@ class ThresholdEngine:
             return cls._instance
 
     @classmethod
-    def reset(cls):
+    def reset(cls) -> None:
         with cls._lock:
             cls._instance = None
 
@@ -53,6 +59,7 @@ class ThresholdEngine:
             cfg = get_config().get("intelligence", {}).get("alerts", {})
             return cfg.get("rules", [])
         except Exception:
+            logger.debug("Config unavailable for alert rules, using empty ruleset")
             return []
 
     def _detect_platform(self) -> str:
@@ -60,6 +67,7 @@ class ThresholdEngine:
             from bannin.platforms.detector import detect_platform
             return detect_platform()
         except Exception:
+            logger.debug("Platform detection failed, defaulting to 'local'")
             return "local"
 
     def evaluate(self, metrics_snapshot: dict | None = None) -> list[dict]:
@@ -79,7 +87,8 @@ class ThresholdEngine:
             # Check cooldown
             rule_id = rule["id"]
             cooldown = rule.get("cooldown_seconds", 60)
-            last = self._last_fired.get(rule_id, 0)
+            with self._data_lock:
+                last = self._last_fired.get(rule_id, 0)
             if now - last < cooldown:
                 continue
 
@@ -132,6 +141,14 @@ class ThresholdEngine:
                 with self._data_lock:
                     self._alert_history.append(alert)
                     self._last_fired[rule_id] = now
+                    # Bound _last_fired to prevent unbounded growth
+                    # Evict oldest entries to preserve recent cooldown state
+                    if len(self._last_fired) > 500:
+                        oldest_keys = sorted(
+                            self._last_fired, key=lambda k: self._last_fired.get(k, 0.0),
+                        )[:100]
+                        for k in oldest_keys:
+                            del self._last_fired[k]
                 new_alerts.append(alert)
 
                 # Emit to analytics pipeline
@@ -145,11 +162,11 @@ class ThresholdEngine:
                         "data": {"rule_id": rule_id, "value": alert.get("value"), "threshold": threshold},
                     })
                 except Exception:
-                    pass
+                    logger.debug("Failed to emit alert event to pipeline")
 
         return new_alerts
 
-    def _resolve_metric(self, path: str, snapshot: dict):
+    def _resolve_metric(self, path: str, snapshot: dict) -> Any | None:
         """Resolve a dot-path like 'memory.percent' from the metrics snapshot."""
         parts = path.split(".")
         current = snapshot
@@ -165,7 +182,8 @@ class ThresholdEngine:
         # Parse: "metric.path operator value"
         parts = condition.strip().split()
         if len(parts) != 3:
-            return True  # Can't parse, don't block the alert
+            logger.warning("Cannot parse alert condition (expected 3 parts): %s", condition)
+            return False
 
         metric_path, operator_str, threshold_str = parts
         value = self._resolve_metric(metric_path, snapshot)
@@ -175,11 +193,13 @@ class ThresholdEngine:
         try:
             threshold = float(threshold_str)
         except ValueError:
-            return True
+            logger.warning("Cannot parse threshold as float in condition: %s", condition)
+            return False
 
         op_func = _OPERATORS.get(operator_str)
         if not op_func:
-            return True
+            logger.warning("Unknown operator '%s' in condition: %s", operator_str, condition)
+            return False
 
         return op_func(value, threshold)
 
@@ -194,7 +214,7 @@ class ThresholdEngine:
             snapshot["disk"] = get_disk_metrics()
             snapshot["cpu"] = get_cpu_metrics()
         except Exception:
-            pass
+            logger.debug("Failed to collect system metrics for alert evaluation")
 
         # GPU metrics
         try:
@@ -205,15 +225,15 @@ class ThresholdEngine:
                 snapshot["gpu"] = gpus[0]
                 snapshot["gpus"] = gpus
         except Exception:
-            pass
+            logger.debug("Failed to collect GPU metrics for alert evaluation")
 
-        # OOM predictions
+        # OOM predictions (reuse a cached instance to avoid re-loading config each cycle)
         try:
             from bannin.intelligence.oom import OOMPredictor
-            predictor = OOMPredictor()
+            predictor = OOMPredictor.get()
             snapshot["predictions"] = {"oom": predictor.predict()}
         except Exception:
-            pass
+            logger.debug("Failed to get OOM predictions for alert evaluation")
 
         # Task tracking
         try:
@@ -233,7 +253,7 @@ class ThresholdEngine:
                 "longest_eta_seconds": longest_eta,
             }
         except Exception:
-            pass
+            logger.debug("Failed to collect task data for alert evaluation")
 
         # LLM metrics + health score
         try:
@@ -250,19 +270,19 @@ class ThresholdEngine:
                 session_fatigue = None
                 vram_pressure = None
                 try:
-                    from bannin.api import get_mcp_session_data
+                    from bannin.state import get_mcp_session_data
                     mcp_data = get_mcp_session_data()
                     if mcp_data:
                         session_fatigue = mcp_data
                 except Exception:
-                    pass
+                    logger.debug("MCP session data unavailable for alert health check")
                 try:
                     from bannin.llm.ollama import OllamaMonitor
                     ollama = OllamaMonitor.get().get_health()
                     if ollama.get("available"):
                         vram_pressure = ollama.get("vram_pressure")
                 except Exception:
-                    pass
+                    logger.debug("Ollama health unavailable for alert health check")
 
                 health = tracker.get_health(
                     session_fatigue=session_fatigue,
@@ -271,9 +291,9 @@ class ThresholdEngine:
                 snapshot["llm"]["health_score"] = health.get("health_score", 100)
                 snapshot["llm"]["health_rating"] = health.get("rating", "excellent")
             except Exception:
-                pass
+                logger.debug("Failed to compute LLM health for alert evaluation")
         except Exception:
-            pass
+            logger.debug("Failed to collect LLM metrics for alert evaluation")
 
         # Ollama metrics
         try:
@@ -285,11 +305,11 @@ class ThresholdEngine:
                     "model_count": ollama_health.get("model_count", 0),
                 }
         except Exception:
-            pass
+            logger.debug("Failed to collect Ollama metrics for alert evaluation")
 
         # MCP session metrics (from pushed data)
         try:
-            from bannin.api import get_mcp_session_data
+            from bannin.state import get_mcp_session_data
             mcp_data = get_mcp_session_data()
             if mcp_data:
                 snapshot["mcp"] = {
@@ -298,7 +318,7 @@ class ThresholdEngine:
                     "session_duration_minutes": mcp_data.get("session_duration_minutes", 0),
                 }
         except Exception:
-            pass
+            logger.debug("Failed to collect MCP session metrics for alert evaluation")
 
         # Platform metrics
         try:
@@ -322,62 +342,81 @@ class ThresholdEngine:
                     "gpu_quota": {"remaining_hours": platform_data.get("quotas", {}).get("gpu_remaining_hours", 99)},
                 }
         except Exception:
-            pass
+            logger.debug("Failed to collect platform metrics for alert evaluation")
 
         return snapshot
 
     def get_alerts(self, limit: int | None = None) -> dict:
         """Get full alert history for this session."""
         with self._data_lock:
-            alerts = list(reversed(self._alert_history))
+            alerts = [dict(a) for a in reversed(self._alert_history)]
+            total_fired = len(self._alert_history)
         if limit:
             alerts = alerts[:limit]
         return {
-            "total_fired": len(self._alert_history),
+            "total_fired": total_fired,
             "alerts": alerts,
         }
 
     def get_active_alerts(self) -> dict:
-        """Get currently active alerts — only if the condition is STILL true."""
+        """Get currently active alerts — only if the condition is STILL true.
+
+        Copies _last_fired and _alert_history under lock, then releases the
+        lock before expensive metric resolution to avoid blocking writers.
+        """
         now = time.time()
         active = []
 
         # Build rule lookups
         rules_by_id = {r["id"]: r for r in self._rules}
 
-        # Collect current metrics once for re-checking
+        # Snapshot shared state under lock, then release before I/O
+        with self._data_lock:
+            fired_snapshot = dict(self._last_fired)
+            history_snapshot = list(self._alert_history)
+
+        # Collect current metrics (expensive — no lock held)
         current = self._collect_metrics()
 
-        with self._data_lock:
-            for rule_id, last_epoch in self._last_fired.items():
-                rule = rules_by_id.get(rule_id)
-                if not rule:
-                    continue
+        for rule_id, last_epoch in fired_snapshot.items():
+            rule = rules_by_id.get(rule_id)
+            if not rule:
+                continue
 
-                cooldown = rule.get("cooldown_seconds", 60)
-                if now - last_epoch >= cooldown:
-                    continue
+            cooldown = rule.get("cooldown_seconds", 60)
+            if now - last_epoch >= cooldown:
+                continue
 
-                # Re-check: is the condition STILL true right now?
-                metric_path = rule.get("metric", "")
-                value = self._resolve_metric(metric_path, current)
-                if value is None:
-                    continue
+            # Re-check: is the condition STILL true right now?
+            metric_path = rule.get("metric", "")
+            value = self._resolve_metric(metric_path, current)
+            if value is None:
+                continue
 
-                threshold = rule.get("threshold")
-                operator_str = rule.get("operator", ">=")
-                op_func = _OPERATORS.get(operator_str)
-                if not op_func or threshold is None:
-                    continue
+            threshold = rule.get("threshold")
+            compare_to = rule.get("compare_to")
+            operator_str = rule.get("operator", ">=")
+            op_func = _OPERATORS.get(operator_str)
+            if not op_func:
+                continue
 
+            # Re-evaluate: compare_to rules compare two metrics;
+            # threshold rules compare metric to a fixed value
+            if compare_to:
+                compare_value = self._resolve_metric(compare_to, current)
+                if compare_value is None or not op_func(value, compare_value):
+                    continue
+            elif threshold is not None:
                 if not op_func(value, threshold):
                     continue  # Condition no longer true — suppress alert
+            else:
+                continue  # Neither threshold nor compare_to — skip
 
-                # Find the most recent alert for this rule
-                for alert in reversed(self._alert_history):
-                    if alert["id"] == rule_id:
-                        active.append(alert)
-                        break
+            # Find the most recent alert for this rule from snapshot
+            for alert in reversed(history_snapshot):
+                if alert["id"] == rule_id:
+                    active.append(dict(alert))
+                    break
 
         return {
             "active": active,
@@ -385,7 +424,7 @@ class ThresholdEngine:
         }
 
 
-def _format_seconds(seconds) -> str:
+def _format_seconds(seconds: float | int | str) -> str:
     """Format seconds into human-readable time."""
     try:
         seconds = int(float(seconds))

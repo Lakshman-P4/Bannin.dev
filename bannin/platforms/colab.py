@@ -1,15 +1,18 @@
+from __future__ import annotations
+
 import os
 import time
 import shutil
 
 import psutil
 
+from bannin.log import logger
 from bannin.config.loader import get_colab_config
 
 _session_start_time = time.time()
 
 
-def _build_tiers() -> dict:
+def _build_tiers() -> dict[str, dict]:
     """Build tier limits from remote config, falling back to defaults."""
     cfg = get_colab_config().get("tiers", {})
     tiers = {}
@@ -56,18 +59,20 @@ MAX_FILE_DOWNLOAD_MB = 100
 
 def get_colab_metrics() -> dict:
     tier = _detect_tier()
+    gpu = _get_gpu_info()
+    drive = _get_drive_info()
     return {
         "platform": "colab",
         "tier": tier,
         "session": _get_session_info(tier),
-        "gpu": _get_gpu_info(),
+        "gpu": gpu,
         "ram": _get_ram_info(tier),
         "storage": _get_storage_info(tier),
-        "drive": _get_drive_info(),
+        "drive": drive,
         "concurrent_sessions": TIERS[tier]["concurrent"],
         "background_execution": TIERS[tier]["background_exec"],
-        "limits": _get_hard_limits(),
-        "warnings": _generate_warnings(tier),
+        "limits": _get_hard_limits(tier),
+        "warnings": _generate_warnings(gpu=gpu, drive=drive, tier=tier),
     }
 
 
@@ -94,7 +99,7 @@ def _get_session_info(tier: str) -> dict:
         "max_session_human": _format_duration(max_session),
         "remaining_seconds": round(remaining),
         "remaining_human": _format_duration(remaining),
-        "percent_used": round((elapsed / max_session) * 100, 1),
+        "percent_used": round((elapsed / max_session) * 100, 1) if max_session > 0 else 0,
         "idle_timeout_seconds": idle_timeout,
         "idle_timeout_human": _format_duration(idle_timeout),
     }
@@ -117,14 +122,17 @@ def _get_gpu_info() -> dict:
 
         name = pynvml.nvmlDeviceGetName(handle)
         if isinstance(name, bytes):
-            name = name.decode("utf-8")
+            try:
+                name = name.decode("utf-8")
+            except UnicodeDecodeError:
+                name = name.decode("utf-8", errors="replace")
         gpu_name = name
 
         mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
         gpu_memory_total_gb = round(mem.total / (1024**3), 2)
         gpu_memory_used_gb = round(mem.used / (1024**3), 2)
         gpu_memory_free_gb = round(mem.free / (1024**3), 2)
-        gpu_memory_percent = round(mem.used / mem.total * 100, 1)
+        gpu_memory_percent = round(mem.used / mem.total * 100, 1) if mem.total > 0 else 0
 
         util = pynvml.nvmlDeviceGetUtilizationRates(handle)
         gpu_utilization = util.gpu
@@ -132,14 +140,14 @@ def _get_gpu_info() -> dict:
         try:
             gpu_temperature = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
         except Exception:
-            pass
+            logger.debug("Colab GPU temperature read failed")
 
         try:
             gpu_power_watts = round(pynvml.nvmlDeviceGetPowerUsage(handle) / 1000, 1)
         except Exception:
-            pass
+            logger.debug("Colab GPU power read failed")
     except Exception:
-        pass
+        logger.debug("Colab GPU detection failed (no GPU assigned or pynvml unavailable)")
 
     # Fallback: check env var
     if gpu_name is None:
@@ -209,9 +217,9 @@ def _get_storage_info(tier: str) -> dict:
         result["total_gb"] = round(usage.total / (1024**3), 2)
         result["used_gb"] = round(usage.used / (1024**3), 2)
         result["free_gb"] = round(usage.free / (1024**3), 2)
-        result["percent"] = round(usage.used / usage.total * 100, 1)
+        result["percent"] = round(usage.used / usage.total * 100, 1) if usage.total > 0 else 0
     except Exception:
-        pass
+        logger.debug("Colab storage usage check failed for %s", content_dir)
 
     return result
 
@@ -226,10 +234,10 @@ def _get_drive_info() -> dict:
                 "total_gb": round(usage.total / (1024**3), 2),
                 "used_gb": round(usage.used / (1024**3), 2),
                 "free_gb": round(usage.free / (1024**3), 2),
-                "percent": round(usage.used / usage.total * 100, 1),
+                "percent": round(usage.used / usage.total * 100, 1) if usage.total > 0 else 0,
             }
         except Exception:
-            pass
+            logger.debug("Google Drive usage check failed")
 
     return {
         "mounted": mounted,
@@ -238,15 +246,15 @@ def _get_drive_info() -> dict:
     }
 
 
-def _get_hard_limits() -> dict:
-    cpu_count = psutil.cpu_count(logical=True)
+def _get_hard_limits(tier: str) -> dict:
+    cpu_count = psutil.cpu_count(logical=True) or 1
     return {
         "max_notebook_size_mb": MAX_NOTEBOOK_SIZE_MB,
         "max_file_upload_gb": MAX_FILE_UPLOAD_GB,
         "max_file_download_mb": MAX_FILE_DOWNLOAD_MB,
         "cpu_cores": cpu_count,
         "inbound_connections": False,
-        "ssh_access": _detect_tier() != "free",
+        "ssh_access": tier != "free",
         "root_access": True,
         "prohibited": [
             "Cryptocurrency mining",
@@ -257,17 +265,15 @@ def _get_hard_limits() -> dict:
     }
 
 
-def _generate_warnings(tier: str) -> list[str]:
+def _generate_warnings(*, gpu: dict, drive: dict, tier: str) -> list[str]:
     warnings = []
 
     # Platform-specific binary checks (not threshold-based)
-    gpu = _get_gpu_info()
     if not gpu["assigned"]:
         warnings.append("NO GPU: No GPU assigned. You may have been throttled or GPU is unavailable.")
     if gpu["temperature_c"] is not None and gpu["temperature_c"] > 85:
         warnings.append(f"GPU HOT: Temperature at {gpu['temperature_c']}C. May cause thermal throttling.")
 
-    drive = _get_drive_info()
     if not drive["mounted"]:
         warnings.append("DRIVE NOT MOUNTED: Cannot save checkpoints to Google Drive. Data will be lost on disconnect.")
 
@@ -275,15 +281,17 @@ def _generate_warnings(tier: str) -> list[str]:
     try:
         from bannin.intelligence.alerts import ThresholdEngine
         active = ThresholdEngine.get().get_active_alerts()
-        for alert in active.get("active", []):
+        for alert in active.get("active", [])[:50]:
             warnings.append(alert["message"])
     except Exception:
-        pass
+        logger.debug("Failed to fetch active alerts for Colab warnings")
 
-    return warnings
+    return warnings[:100]
 
 
 def _format_duration(seconds: float) -> str:
+    if seconds < 0:
+        seconds = 0
     hours = int(seconds // 3600)
     minutes = int((seconds % 3600) // 60)
     if hours > 0:

@@ -5,7 +5,10 @@ predict when RAM or GPU VRAM will be exhausted.  All math is pure Python
 (no numpy) so the package stays lightweight.
 """
 
-import time
+from __future__ import annotations
+
+import math
+import threading
 
 from bannin.intelligence.history import MetricHistory
 
@@ -13,7 +16,10 @@ from bannin.intelligence.history import MetricHistory
 class OOMPredictor:
     """Predicts out-of-memory events from memory usage trends."""
 
-    def __init__(self):
+    _instance: OOMPredictor | None = None
+    _lock = threading.Lock()
+
+    def __init__(self) -> None:
         try:
             from bannin.config.loader import get_config
             cfg = get_config().get("intelligence", {}).get("oom", {})
@@ -22,6 +28,20 @@ class OOMPredictor:
         except Exception:
             self._min_points = 12
             self._confidence_threshold = 70
+
+    @classmethod
+    def get(cls) -> OOMPredictor:
+        """Get or create the singleton instance."""
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = cls()
+            return cls._instance
+
+    @classmethod
+    def reset(cls) -> None:
+        """Reset the singleton. Mainly for testing."""
+        with cls._lock:
+            cls._instance = None
 
     def predict(self) -> dict:
         """Generate OOM predictions for RAM and each GPU.
@@ -100,7 +120,7 @@ class OOMPredictor:
 
         return results
 
-    def _predict_from_series(self, points: list[tuple], current: float, label: str = "") -> dict:
+    def _predict_from_series(self, points: list[tuple[float, float]], current: float, label: str = "") -> dict:
         """Core prediction: linear regression on (time, percent) data.
 
         Returns prediction dict with trend, growth rate, time to full, confidence.
@@ -165,7 +185,7 @@ class OOMPredictor:
         }
 
     @staticmethod
-    def _linear_regression(points: list[tuple]) -> tuple[float, float, float]:
+    def _linear_regression(points: list[tuple[float, float]]) -> tuple[float, float, float]:
         """Pure-Python least-squares linear regression.
 
         Args:
@@ -174,6 +194,9 @@ class OOMPredictor:
         Returns:
             (slope, intercept, r_squared)
         """
+        # Filter out non-finite values (NaN, infinity) to prevent corrupted math
+        points = [(x, y) for x, y in points if math.isfinite(x) and math.isfinite(y)]
+
         n = len(points)
         if n < 2:
             return 0.0, 0.0, 0.0

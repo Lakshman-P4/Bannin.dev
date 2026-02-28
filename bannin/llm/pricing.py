@@ -4,6 +4,9 @@ Prices are loaded from remote config (defaults.json → cache → GitHub)
 so they stay current without a package release.
 """
 
+from __future__ import annotations
+
+from bannin.log import logger
 from bannin.config.loader import get_config
 
 # Hardcoded fallback — used only if config loading completely fails
@@ -19,7 +22,7 @@ _FALLBACK_MODELS = {
 }
 
 
-def _get_model_db() -> dict:
+def _get_model_db() -> dict[str, dict]:
     """Load model database from config, falling back to hardcoded values."""
     try:
         cfg = get_config()
@@ -27,8 +30,9 @@ def _get_model_db() -> dict:
         if models:
             return models
     except Exception:
-        pass
-    return _FALLBACK_MODELS
+        logger.debug("Config unavailable for model database, using fallback")
+    # Return a shallow copy so callers cannot corrupt the global fallback
+    return dict(_FALLBACK_MODELS)
 
 
 def lookup_model(model_name: str) -> dict | None:
@@ -39,23 +43,24 @@ def lookup_model(model_name: str) -> dict | None:
     """
     db = _get_model_db()
 
-    # Exact match
+    # Exact match — return a copy to prevent caller mutation of the db
     if model_name in db:
-        return db[model_name]
+        return dict(db[model_name])
 
-    # Prefix match — strip date suffixes (e.g., "gpt-4o-2024-08-06" → "gpt-4o")
+    # Prefix match -- strip date suffixes (e.g., "gpt-4o-2024-08-06" matches "gpt-4o")
     # Also handles "claude-sonnet-4-6" matching "claude-sonnet-4-20250514"
+    # Use longest match to avoid "gpt-4o-mini" matching "gpt-4o" pricing.
+    best_match: dict | None = None
+    best_len = 0
     for known_name, info in db.items():
-        if model_name.startswith(known_name) or known_name.startswith(model_name):
-            return info
+        if model_name.startswith(known_name) and len(known_name) > best_len:
+            best_match = info
+            best_len = len(known_name)
+        elif known_name.startswith(model_name) and len(model_name) > best_len:
+            best_match = info
+            best_len = len(model_name)
 
-    # Partial match — check if any known name is a substring
-    model_lower = model_name.lower()
-    for known_name, info in db.items():
-        if known_name.lower() in model_lower or model_lower in known_name.lower():
-            return info
-
-    return None
+    return dict(best_match) if best_match is not None else None
 
 
 def calculate_cost(
@@ -68,6 +73,11 @@ def calculate_cost(
 
     Returns 0.0 if the model is unknown (we still track tokens, just can't price them).
     """
+    # Clamp to non-negative to guard against garbage values
+    input_tokens = max(0, input_tokens)
+    output_tokens = max(0, output_tokens)
+    cached_tokens = max(0, cached_tokens)
+
     info = lookup_model(model)
     if info is None:
         return 0.0

@@ -16,6 +16,8 @@ Higher score = healthier conversation.
 
 from __future__ import annotations
 
+from bannin.log import logger
+
 
 def calculate_health_score(
     context_percent: float,
@@ -201,7 +203,7 @@ def _resolve_weights(
     vram_pressure: float | None,
     inference_trend: float | None,
     override: dict | None = None,
-) -> dict:
+) -> dict[str, float]:
     """Dynamically compute weights based on available signals.
 
     Unavailable signals get weight 0 and their weight redistributes
@@ -248,13 +250,14 @@ def _resolve_weights(
     return {"context_freshness": 1.0}
 
 
-def _load_weight_profile(has_cost: bool, has_session: bool, has_vram: bool) -> dict:
+def _load_weight_profile(has_cost: bool, has_session: bool, has_vram: bool) -> dict[str, float]:
     """Load weight profile from config based on detected user type."""
     try:
         from bannin.config.loader import get_config
         cfg = get_config().get("intelligence", {}).get("conversation_health", {})
         profiles = cfg.get("weight_profiles", {})
     except Exception:
+        logger.debug("Config unavailable for health weight profiles, using defaults")
         profiles = {}
 
     # Select profile based on signals
@@ -310,13 +313,14 @@ def _get_danger_zone(model: str | None) -> float | None:
             if dz is not None:
                 return float(dz)
     except Exception:
-        pass
+        logger.debug("Model lookup failed for danger zone: %s", model)
     # Default for unknown models
     try:
         from bannin.config.loader import get_config
         cfg = get_config().get("llm", {})
         return cfg.get("default_danger_zone_percent", 65)
     except Exception:
+        logger.debug("Config unavailable for default danger zone, using 65%%")
         return 65
 
 
@@ -375,7 +379,7 @@ def _score_cost_efficiency(trend: float | None) -> tuple[float, str]:
     if trend <= 2.0:
         score = 60.0 - (trend - 1.5) * (40.0 / 0.5)
         return round(score, 1), f"Cost per response increasing ({trend:.1f}x more expensive)"
-    return max(0.0, 20.0 - (trend - 2.0) * 20.0), f"Cost per response significantly increased ({trend:.1f}x)"
+    return round(max(0.0, 20.0 - (trend - 2.0) * 20.0), 1), f"Cost per response significantly increased ({trend:.1f}x)"
 
 
 def _score_vram_pressure(vram_percent: float | None) -> float:
@@ -404,6 +408,16 @@ def _score_inference_throughput(trend: float | None) -> tuple[float, str]:
         score = 60.0 - (0.8 - trend) * (40.0 / 0.3)
         return round(max(0, score), 1), f"Inference speed degrading ({trend:.2f}x)"
     return 0.0, f"Inference speed critically low ({trend:.2f}x of initial)"
+
+
+def _load_thresholds() -> dict:
+    try:
+        from bannin.config.loader import get_config
+        cfg = get_config().get("intelligence", {}).get("conversation_health", {})
+        return cfg.get("thresholds", {"excellent": 90, "good": 70, "fair": 50, "poor": 30})
+    except Exception:
+        logger.debug("Config unavailable for health thresholds, using defaults")
+        return {"excellent": 90, "good": 70, "fair": 50, "poor": 30}
 
 
 def _get_rating(score: float, thresholds: dict) -> str:
@@ -444,15 +458,6 @@ def _build_recommendation(
         return "Quality is declining. A new conversation will give you better, more focused responses."
 
     return "Keep an eye on quality -- it may start declining as the conversation grows."
-
-
-def _load_thresholds() -> dict:
-    try:
-        from bannin.config.loader import get_config
-        cfg = get_config().get("intelligence", {}).get("conversation_health", {})
-        return cfg.get("thresholds", {"excellent": 90, "good": 70, "fair": 50, "poor": 30})
-    except Exception:
-        return {"excellent": 90, "good": 70, "fair": 50, "poor": 30}
 
 
 # --- Human-readable detail generators ---

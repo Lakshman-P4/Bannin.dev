@@ -127,6 +127,26 @@
       "stall_timeout_seconds": 300
     },
 
+    "training_detection": {
+      "_note": "Detects ML training processes from command-line inspection during background process scans.",
+      "scripts": [
+        "train\\.py", "train_\\w+", "finetune\\w*", "fine_tune\\w*",
+        "run_clm\\.py", "run_mlm\\.py", "run_glue\\.py", "trainer\\.py",
+        "run_training\\.py", "run_train\\.py"
+      ],
+      "arg_keywords": [
+        "train", "training", "fit", "finetune", "fine_tune",
+        "--do_train", "--num_train_epochs", "epochs"
+      ],
+      "frameworks": [
+        "transformers", "pytorch_lightning", "keras", "tensorflow",
+        "accelerate", "deepspeed", "fairseq", "torch.distributed",
+        "lightning", "detectron2"
+      ],
+      "finished_ttl_seconds": 300,
+      "max_tracked": 100
+    },
+
     "alerts": {
       "rules": [
         {

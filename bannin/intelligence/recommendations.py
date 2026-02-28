@@ -6,7 +6,9 @@ MCP session + platform) and produces prioritized, human-readable recommendations
 
 from __future__ import annotations
 
-import time
+from datetime import datetime, timezone
+
+from bannin.log import logger
 
 
 def generate_recommendations(snapshot: dict) -> list[dict]:
@@ -22,7 +24,7 @@ def generate_recommendations(snapshot: dict) -> list[dict]:
     recs = []
     _id = 0
 
-    def add(priority: int, category: str, message: str, action: str, confidence: float = 0.8):
+    def add(priority: int, category: str, message: str, action: str, confidence: float = 0.8) -> None:
         nonlocal _id
         _id += 1
         recs.append({
@@ -60,7 +62,7 @@ def generate_recommendations(snapshot: dict) -> list[dict]:
             health.get("recommendation", "Start a new conversation"), 0.85)
 
     # --- Rule 4: Context window filling ---
-    danger_zone = health.get("danger_zone", {})
+    danger_zone = health.get("danger_zone") or {}
     if danger_zone.get("in_danger_zone"):
         dz_pct = danger_zone.get("danger_zone_percent", 80)
         model = danger_zone.get("model", "current model")
@@ -145,11 +147,10 @@ def generate_recommendations(snapshot: dict) -> list[dict]:
                 "Check if your machine is under load or if the provider is slow", 0.7)
 
     # --- Rule 12: Ollama model about to unload ---
-    for model_info in ollama.get("models", []):
+    for model_info in ollama.get("models", [])[:50]:
         expires = model_info.get("expires_at", "")
         if expires:
             try:
-                from datetime import datetime, timezone
                 # Ollama returns ISO format expiry
                 exp_dt = datetime.fromisoformat(expires.replace("Z", "+00:00"))
                 remaining_sec = (exp_dt - datetime.now(timezone.utc)).total_seconds()
@@ -157,7 +158,7 @@ def generate_recommendations(snapshot: dict) -> list[dict]:
                     add(5, "local_llm", f"Model '{model_info.get('name', '')}' expires in {remaining_sec / 60:.0f} minutes",
                         "Send a request to keep the model loaded, or it will auto-unload", 0.75)
             except (ValueError, TypeError):
-                pass
+                logger.debug("Failed to parse Ollama model expiry timestamp")
 
     # Sort by priority
     recs.sort(key=lambda r: r["priority"])
@@ -175,21 +176,21 @@ def build_recommendation_snapshot() -> dict:
         snapshot["memory"] = get_memory_metrics()
         snapshot["disk"] = get_disk_metrics()
     except Exception:
-        pass
+        logger.debug("System metrics unavailable for recommendations")
 
     # Top processes
     try:
         from bannin.core.process import get_grouped_processes
         snapshot["top_processes"] = get_grouped_processes(limit=5)
     except Exception:
-        pass
+        logger.debug("Process data unavailable for recommendations")
 
     # OOM predictions
     try:
         from bannin.intelligence.oom import OOMPredictor
-        snapshot["predictions"] = {"oom": OOMPredictor().predict()}
+        snapshot["predictions"] = {"oom": OOMPredictor.get().predict()}
     except Exception:
-        pass
+        logger.debug("OOM predictions unavailable for recommendations")
 
     # LLM health
     try:
@@ -203,13 +204,13 @@ def build_recommendation_snapshot() -> dict:
         vram_pressure = None
 
         try:
-            from bannin.api import get_mcp_session_data
+            from bannin.state import get_mcp_session_data
             mcp_data = get_mcp_session_data()
             if mcp_data:
                 snapshot["mcp"] = mcp_data
                 session_fatigue = mcp_data
         except Exception:
-            pass
+            logger.debug("MCP session data unavailable for recommendations")
 
         try:
             from bannin.llm.ollama import OllamaMonitor
@@ -218,7 +219,7 @@ def build_recommendation_snapshot() -> dict:
             if ollama_health.get("available"):
                 vram_pressure = ollama_health.get("vram_pressure")
         except Exception:
-            pass
+            logger.debug("Ollama health unavailable for recommendations")
 
         health = tracker.get_health(
             session_fatigue=session_fatigue,
@@ -226,7 +227,7 @@ def build_recommendation_snapshot() -> dict:
         )
         snapshot["health"] = health
     except Exception:
-        pass
+        logger.debug("LLM health unavailable for recommendations")
 
     # Platform
     try:
@@ -239,6 +240,6 @@ def build_recommendation_snapshot() -> dict:
             from bannin.platforms.kaggle import get_kaggle_metrics
             snapshot["platform"] = get_kaggle_metrics()
     except Exception:
-        pass
+        logger.debug("Platform metrics unavailable for recommendations")
 
     return snapshot

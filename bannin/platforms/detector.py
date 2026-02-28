@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import importlib
 
@@ -7,10 +9,12 @@ def detect_platform() -> str:
 
     Returns one of: 'colab', 'kaggle', 'local'
     """
-    if _is_colab():
-        return "colab"
+    # Check Kaggle first -- Kaggle VMs may also have google.colab installed,
+    # which would cause a false positive if Colab is checked first.
     if _is_kaggle():
         return "kaggle"
+    if _is_colab():
+        return "colab"
     return "local"
 
 
@@ -25,8 +29,11 @@ def _is_colab() -> bool:
         return True
     except ImportError:
         pass
-    # Colab runs on a VM with /content as the working directory
-    if os.path.isdir("/content") and os.path.isdir("/root/.config"):
+    # Colab runs on a VM with /content as the working directory.
+    # Require a Colab-specific marker to avoid false positives on regular Linux.
+    if os.path.isdir("/content") and (
+        os.path.isdir("/root/.config/colab") or os.path.isfile("/etc/colab-env")
+    ):
         return True
     return False
 
