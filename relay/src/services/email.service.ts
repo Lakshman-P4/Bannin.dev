@@ -1,79 +1,47 @@
-import nodemailer from "nodemailer";
-import type { Transporter } from "nodemailer";
 import { getEnv } from "../config/env.js";
 import { logger } from "../lib/logger.js";
 
-let _transporter: Transporter | null = null;
-let _transporterReady: Promise<Transporter | null> | null = null;
+const BREVO_API_URL = "https://api.brevo.com/v3/smtp/email";
 
-function initTransporter(): Promise<Transporter | null> {
-  if (_transporterReady) return _transporterReady;
+interface BrevoEmailPayload {
+  sender: { name: string; email: string };
+  to: { email: string }[];
+  subject: string;
+  htmlContent: string;
+  textContent: string;
+}
 
-  _transporterReady = (async () => {
-    if (_transporter) return _transporter;
+async function sendEmail(payload: BrevoEmailPayload): Promise<void> {
+  const env = getEnv();
 
-    const env = getEnv();
-    const hasRealSmtp =
-      env.SMTP_HOST &&
-      env.SMTP_USER &&
-      env.SMTP_USER !== "your@email.com";
+  if (!env.BREVO_API_KEY || !env.EMAIL_FROM_ADDRESS) {
+    logger.info("Email sending disabled (BREVO_API_KEY or EMAIL_FROM_ADDRESS not set)");
+    return;
+  }
 
-    if (hasRealSmtp) {
-      _transporter = nodemailer.createTransport({
-        host: env.SMTP_HOST,
-        port: env.SMTP_PORT,
-        secure: env.SMTP_PORT === 465,
-        auth: {
-          user: env.SMTP_USER,
-          pass: env.SMTP_PASS,
-        },
-      });
-      logger.info("SMTP configured with real credentials");
-      return _transporter;
-    }
+  const res = await fetch(BREVO_API_URL, {
+    method: "POST",
+    headers: {
+      "accept": "application/json",
+      "api-key": env.BREVO_API_KEY,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
 
-    // Development fallback: auto-create Ethereal test account
-    if (env.NODE_ENV !== "production") {
-      try {
-        const testAccount = await nodemailer.createTestAccount();
-        _transporter = nodemailer.createTransport({
-          host: "smtp.ethereal.email",
-          port: 587,
-          secure: false,
-          auth: {
-            user: testAccount.user,
-            pass: testAccount.pass,
-          },
-        });
-        logger.info(
-          { user: testAccount.user },
-          "Ethereal dev email account created -- emails viewable at https://ethereal.email/login",
-        );
-        return _transporter;
-      } catch (err) {
-        logger.warn({ err }, "Failed to create Ethereal account, email disabled");
-        return null;
-      }
-    }
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Brevo API error ${res.status}: ${body}`);
+  }
 
-    logger.warn("SMTP not configured, email sending disabled");
-    return null;
-  })();
-
-  return _transporterReady;
+  logger.info({ to: payload.to[0]?.email }, "Email sent via Brevo API");
 }
 
 export async function sendVerificationEmail(to: string, token: string): Promise<void> {
   const env = getEnv();
-  const transporter = await initTransporter();
-  if (!transporter) {
-    logger.info({ to }, "Verification email skipped (no transport available)");
-    return;
-  }
-
   const verifyUrl = `${env.APP_URL}/verify?token=${token}`;
 
-  const html = `
+  const htmlContent = `
 <!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>
@@ -94,22 +62,16 @@ export async function sendVerificationEmail(to: string, token: string): Promise<
 </body>
 </html>`;
 
-  const text = `Bannin -- Verify your email\n\nVerify your email: ${verifyUrl}\n\nIf you didn't request this, ignore this email.`;
+  const textContent = `Bannin -- Verify your email\n\nVerify your email: ${verifyUrl}\n\nIf you didn't request this, ignore this email.`;
 
   try {
-    const info = await transporter.sendMail({
-      from: env.SMTP_FROM,
-      to,
+    await sendEmail({
+      sender: { name: env.EMAIL_FROM_NAME, email: env.EMAIL_FROM_ADDRESS },
+      to: [{ email: to }],
       subject: "Verify your Bannin email",
-      html,
-      text,
+      htmlContent,
+      textContent,
     });
-    logger.info({ to }, "Verification email sent");
-
-    const previewUrl = nodemailer.getTestMessageUrl(info);
-    if (previewUrl) {
-      logger.info({ previewUrl }, "View verification email at this URL");
-    }
   } catch (err) {
     logger.error({ err, to }, "Failed to send verification email");
     throw new Error("Failed to send verification email");
@@ -118,15 +80,9 @@ export async function sendVerificationEmail(to: string, token: string): Promise<
 
 export async function sendPasswordResetEmail(to: string, token: string): Promise<void> {
   const env = getEnv();
-  const transporter = await initTransporter();
-  if (!transporter) {
-    logger.info({ to }, "Password reset email skipped (no transport available)");
-    return;
-  }
-
   const resetUrl = `${env.APP_URL}/reset-password?token=${token}`;
 
-  const html = `
+  const htmlContent = `
 <!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>
@@ -147,22 +103,16 @@ export async function sendPasswordResetEmail(to: string, token: string): Promise
 </body>
 </html>`;
 
-  const text = `Bannin -- Password Reset\n\nReset your password: ${resetUrl}\n\nThis link expires in 1 hour. If you didn't request this, ignore this email.`;
+  const textContent = `Bannin -- Password Reset\n\nReset your password: ${resetUrl}\n\nThis link expires in 1 hour. If you didn't request this, ignore this email.`;
 
   try {
-    const info = await transporter.sendMail({
-      from: env.SMTP_FROM,
-      to,
+    await sendEmail({
+      sender: { name: env.EMAIL_FROM_NAME, email: env.EMAIL_FROM_ADDRESS },
+      to: [{ email: to }],
       subject: "Reset your Bannin password",
-      html,
-      text,
+      htmlContent,
+      textContent,
     });
-    logger.info({ to }, "Password reset email sent");
-
-    const previewUrl = nodemailer.getTestMessageUrl(info);
-    if (previewUrl) {
-      logger.info({ previewUrl }, "View password reset email at this URL");
-    }
   } catch (err) {
     logger.error({ err, to }, "Failed to send password reset email");
     throw new Error("Failed to send password reset email");
