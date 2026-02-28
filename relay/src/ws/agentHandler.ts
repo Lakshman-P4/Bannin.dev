@@ -15,6 +15,7 @@ import {
   getDashboardsForAgent, clearPendingTrainingStop,
 } from "./registry.js";
 import { mapAgentTypeToRelayType, broadcastToClients } from "./messages.js";
+import type { AgentMessageType } from "../types/index.js";
 
 export async function handleAgentConnection(ws: WebSocket, req: IncomingMessage): Promise<void> {
   const url = new URL(req.url ?? "", `http://${req.headers.host ?? "localhost"}`);
@@ -108,7 +109,7 @@ export async function handleAgentConnection(ws: WebSocket, req: IncomingMessage)
       ) {
         const raw = parsed as { type: string; timestamp: string; data?: Record<string, unknown> };
         if (["training", "health", "oom_prediction", "processes"].includes(raw.type) && raw.data) {
-          const relayType = mapAgentTypeToRelayType(raw.type);
+          const relayType = mapAgentTypeToRelayType(raw.type as AgentMessageType);
           broadcastToClients(getDashboardsForAgent(agentId), {
             type: relayType,
             agentId,
