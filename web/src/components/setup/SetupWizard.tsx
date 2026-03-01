@@ -8,7 +8,7 @@ import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { api, ApiError } from '@/lib/api';
 
-const STEPS = ['install', 'key', 'connect', 'confirm'] as const;
+const STEPS = ['install', 'key', 'connect', 'confirm', 'mcp'] as const;
 type Step = (typeof STEPS)[number];
 
 const CONNECTION_POLL_INTERVAL = 2_000;
@@ -114,7 +114,7 @@ export function SetupWizard() {
       </div>
 
       <div className="flex justify-center gap-2">
-        {STEPS.map((s, i) => (
+        {STEPS.slice(0, 4).map((s, i) => (
           <div
             key={s}
             className={`h-1.5 w-12 rounded-full ${
@@ -134,9 +134,9 @@ export function SetupWizard() {
             Install Bannin on the machine you want to monitor.
           </p>
           <div className="flex items-center justify-between rounded-lg bg-surface-raised p-3">
-            <code className="font-mono text-sm text-accent-cyan">pip install bannin</code>
+            <code className="font-mono text-sm text-accent-cyan">pip install &quot;bannin[mcp]&quot;</code>
             <button
-              onClick={() => copyToClipboard('pip install bannin')}
+              onClick={() => copyToClipboard('pip install "bannin[mcp]"')}
               className="text-text-muted hover:text-text-primary transition-colors"
               aria-label="Copy install command"
             >
@@ -237,9 +237,14 @@ export function SetupWizard() {
               <p className="text-sm text-text-secondary mb-4">
                 Your agent &ldquo;{agentName}&rdquo; is online and sending data.
               </p>
-              <Button onClick={() => router.push('/home')}>
-                Go to Dashboard
-              </Button>
+              <div className="flex flex-col gap-2">
+                <Button onClick={() => setStep('mcp')}>
+                  Set up Claude Code
+                </Button>
+                <Button variant="ghost" onClick={() => router.push('/home')}>
+                  Skip to Dashboard
+                </Button>
+              </div>
             </>
           ) : (
             <>
@@ -274,6 +279,71 @@ export function SetupWizard() {
               </Button>
             </>
           )}
+        </Card>
+      )}
+
+      {step === 'mcp' && (
+        <Card>
+          <h2 className="font-display text-lg font-semibold text-text-primary mb-2">
+            Connect to Claude Code
+          </h2>
+          <p className="text-sm text-text-secondary mb-4">
+            Add Bannin as an MCP server so Claude Code can monitor your system
+            and track conversation health.
+          </p>
+          <div className="space-y-3">
+            <div>
+              <p className="text-xs text-text-muted mb-1">1. In Claude Code, type:</p>
+              <div className="flex items-center justify-between rounded-lg bg-surface-raised p-3">
+                <code className="font-mono text-sm text-accent-cyan">/mcp</code>
+                <button
+                  onClick={() => copyToClipboard('/mcp')}
+                  className="text-text-muted hover:text-text-primary transition-colors"
+                  aria-label="Copy /mcp command"
+                >
+                  {copied ? <Check size={16} /> : <Copy size={16} />}
+                </button>
+              </div>
+            </div>
+            <div>
+              <p className="text-xs text-text-muted mb-1">
+                2. Select <span className="text-text-secondary">Add MCP Server</span> &rarr;{' '}
+                <span className="text-text-secondary">stdio</span>
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-text-muted mb-1">3. Enter the server details:</p>
+              <div className="space-y-2">
+                <div className="rounded-lg bg-surface-raised p-3">
+                  <p className="text-xs text-text-muted mb-1">Name</p>
+                  <code className="font-mono text-sm text-accent-cyan">bannin</code>
+                </div>
+                <div className="rounded-lg bg-surface-raised p-3">
+                  <p className="text-xs text-text-muted mb-1">Command</p>
+                  <div className="flex items-center justify-between">
+                    <code className="font-mono text-sm text-accent-cyan">python -m bannin.mcp</code>
+                    <button
+                      onClick={() => copyToClipboard('python -m bannin.mcp')}
+                      className="text-text-muted hover:text-text-primary transition-colors"
+                      aria-label="Copy MCP command"
+                    >
+                      {copied ? <Check size={16} /> : <Copy size={16} />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          {copyFailed && (
+            <p className="mt-2 text-xs text-status-amber">Copy failed. Select the text manually.</p>
+          )}
+          <p className="mt-4 text-xs text-text-muted">
+            Once connected, Claude Code can check your system health, predict OOM crashes,
+            and track conversation quality automatically.
+          </p>
+          <Button className="mt-4 w-full" onClick={() => router.push('/home')}>
+            Done
+          </Button>
         </Card>
       )}
     </div>

@@ -3,7 +3,7 @@
 import { motion, useReducedMotion } from 'framer-motion';
 
 const STEPS = [
-  { step: '1', command: 'pip install bannin', label: 'Install the agent' },
+  { step: '1', command: 'pip install "bannin[mcp]"', label: 'Install the agent' },
   { step: '2', command: 'bannin start', label: 'Start monitoring' },
   { step: '3', command: 'Connect on bannin.dev', label: 'Check in from anywhere' },
 ] as const;
